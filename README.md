@@ -91,7 +91,7 @@ series′ = get_series(comp.ρ.marg, t′, β_ci=0.9)
 ```
 where `comp.ρ.marg` is the collection of the marginal GP models $y(t)$, $\bar x(t)$, $\tilde x(t)$, $\epsilon(t)$ and $r(t)$. (For logarithmically-scaled data, _you must remember to pass the keyword argument_ `logscale=true`.)
 
-NB: Any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where ${t_m'} > t_N$), but one must be extremely careful in interpreting of the results of such extrapolations.
+NB: Any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where $t_m^\prime > t_N$), but one must be extremely careful in interpreting of the results of such extrapolations.
 
 
 ## References
