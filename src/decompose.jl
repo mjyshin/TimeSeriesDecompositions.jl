@@ -1,5 +1,5 @@
-function run_decomp(y::Vector{<:Real}, θ::NamedTuple=NamedTuple();
-                    t::AbstractVector{<:Real}=1:length(y), logscale::Bool=true,
+function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
+                    θ::NamedTuple=NamedTuple(), logscale::Bool=false,
                     fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),
                     keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=0.95,
                     rate::Bool=false, fast_rate::Bool=false, δ::Real=1e-12)
@@ -45,13 +45,13 @@ function run_decomp(y::Vector{<:Real}, θ::NamedTuple=NamedTuple();
     return (data=data, series=series, θ=θ̂, ρ=ρ)
 end
 
-function decompose(y::Vector{<:Real}, θ::NamedTuple=NamedTuple();
-                   t::AbstractVector{<:Real}=1:length(y), logscale::Bool=true,
+function decompose(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
+                   θ::NamedTuple=NamedTuple(), logscale::Bool=false,
                    fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),
                    keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=0.95,
                    filter_outliers::Bool=false, β_outliers::Real=0.95,
                    fast_rate::Bool=false, δ::Real=1e-12)
-    comp = run_decomp(y, θ, t=t, logscale=logscale, fix=fix, keep=keep, β_ci=β_ci, rate=!filter_outliers, fast_rate=fast_rate, δ=δ)
+    comp = run_decomp(y, t, θ=θ, logscale=logscale, fix=fix, keep=keep, β_ci=β_ci, rate=!filter_outliers, fast_rate=fast_rate, δ=δ)
     if !filter_outliers return (comp..., outliers=falses(length(y))) end
 
     ϵ = logscale ? log.(comp.series.ϵ.μ) : comp.series.ϵ.μ
@@ -62,7 +62,7 @@ function decompose(y::Vector{<:Real}, θ::NamedTuple=NamedTuple();
     keep_filter = .!outliers .&& keep
     # outliers = findall(outliers)    # index rather than BitVector...?
 
-    comp = run_decomp(y, comp.θ, t=t, logscale=logscale, fix=fix, keep=keep_filter, β_ci=β_ci, rate=filter_outliers, fast_rate=fast_rate, δ=δ)
+    comp = run_decomp(y, t, θ=comp.θ, logscale=logscale, fix=fix, keep=keep_filter, β_ci=β_ci, rate=filter_outliers, fast_rate=fast_rate, δ=δ)
 
     return (comp..., outliers=outliers)
 end

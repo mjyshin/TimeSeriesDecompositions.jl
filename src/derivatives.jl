@@ -74,12 +74,5 @@ function cov(
     return collect(cov(args, f, x′, x)')
 end
 
-# function fast_deriv(ρ_post::PosteriorGP, t::Real, δ::Real=0)
-#     x̄ = τ -> mean.(marginals(ρ_post(GPPPInput(:x̄, [τ]), δ)))[1]
-#     r = gradient(x̄, t)[1]
-
-#     return r
-# end
-# fast_deriv(ρ_post::PosteriorGP, t::AbstractVector{<:Real}, δ::Real=0) = fast_deriv.(Ref(ρ_post), t, δ)
 fast_deriv(ρ_x̄::Function, t::Real) = gradient(mean ∘ ρ_x̄, t)[1]
 fast_deriv(ρ_x̄::Function, t::AbstractVector{<:Real}) = fast_deriv.(Ref(ρ_x̄), t)

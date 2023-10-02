@@ -41,7 +41,7 @@ MarginalDens′ = NamedTuple{margkeys′, <:NTuple{5, Function}}
 
 ±(x,y) = (x-y, x+y)
 
-function get_series(ρ_marg::MarginalDens, t::AbstractVector{<:Real}; β_ci::Real=0.95, logscale::Bool=true)
+function get_series(ρ_marg::MarginalDens, t::Union{Real, AbstractVector{<:Real}}; β_ci::Real=0.95, logscale::Bool=false)
     y, x̄, x̃, ϵ = [mean.(ρ(t)) for ρ ∈ ρ_marg]
     σ_y, σ_x̄, σ_x̃, σ_ϵ = [std.(ρ(t)) for ρ ∈ ρ_marg]
 
@@ -66,7 +66,7 @@ function get_series(ρ_marg::MarginalDens, t::AbstractVector{<:Real}; β_ci::Rea
 
     return series
 end
-function get_series(ρ_marg::MarginalDens′, t::AbstractVector{<:Real}; β_ci::Real=0.95, logscale::Bool=true)
+function get_series(ρ_marg::MarginalDens′, t::Union{Real, AbstractVector{<:Real}}; β_ci::Real=0.95, logscale::Bool=false)
     series = get_series(ρ_marg[margkeys], t, β_ci=β_ci, logscale=logscale)
 
     α = 1 - β_ci
