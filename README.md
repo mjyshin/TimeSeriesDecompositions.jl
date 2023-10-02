@@ -85,13 +85,13 @@ comp = decompose(y, t, β_ci=0.99)
 
 ### Recomputing series
 
-Instead of rerunning the full decomposition, if we wish to only recompute the series using, for instance, at different times $\{t'_m\}_{m=1}^M$ with a 90% CI, we can use the `get_series()` helper function and the old decomposition results `comp`:
+Instead of rerunning the full decomposition, if we wish to only recompute the series using, for instance, at different times $\{t_m'\}_{m=1}^M$ with a 90% CI, we can use the `get_series()` helper function and the old decomposition results `comp`:
 ```julia
 series′ = get_series(comp.ρ.marg, t′, β_ci=0.9)
 ```
 where `comp.ρ.marg` is the collection of the marginal GP models $y(t)$, $\bar x(t)$, $\tilde x(t)$, $\epsilon(t)$ and $r(t)$. (For logarithmically-scaled data, _you must remember to pass the keyword argument_ `logscale=true`.)
 
-NB: Any of the $t'_m$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where $t'_m > t_N$), but one must be extremely careful in interpreting of the results of such extrapolations.
+NB: Any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where $t_m' > t_N$), but one must be extremely careful in interpreting of the results of such extrapolations.
 
 
 ## References
