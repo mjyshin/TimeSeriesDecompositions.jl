@@ -38,7 +38,7 @@ but it is important to note that while $y(t_n) \approx y_n$ generally, they need
 Finally, we also derive a model $r(t)$ for the **rate** of change of the trend model, defined by the ordinary differential equation (ODE)
 $$r(t) := \frac{\mathrm d\bar x(t)}{\mathrm dt}.$$
 
-NB: We have used a slight abuse of notation for simplicity of explanation; The model $f(t)$ that is actually estimated is a GP (a _distribution_ of paths) with a mean function and covariance kernel. Here, we use the GP and its mean function interchangeably.
+NB: We have used a slight abuse of notation for simplicity of explanation; the model $f(t)$ that is actually estimated is a GP (a _distribution_ of paths) with a mean function and covariance kernel. Here, we use the GP and its mean function interchangeably.
 
 ### Logarithmic data
 
