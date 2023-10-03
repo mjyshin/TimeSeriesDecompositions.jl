@@ -10,8 +10,9 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
 
     # Set up inputted series
     𝓉 = GPPPInput(:y, t[keep])
-    ȳ = mean(y[keep])
-    𝓎 = y[keep] .- ȳ    # zero-mean the series
+    # ȳ = mean(y[keep])
+    # 𝓎 = y[keep] .- ȳ    # zero-mean the series
+    𝓎, ȳ, sy = normalize(y[keep])    # normalize the series
 
     # Compute optimal params
     if prod(θkeys .∈ Ref(fix))    # CASE 1: FIX ALL PARAMS
@@ -37,7 +38,7 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
 
     # Densities
     ρ_post = posterior(build_gp(θ̂, rate && !fast_rate)(𝓉, 0.0), 𝓎)
-    ρ_marg = get_marg(ρ_post, ȳ, rate=rate, fast_rate=fast_rate, δ=δ)
+    ρ_marg = get_marg(ρ_post, ȳ, sy, rate=rate, fast_rate=fast_rate, δ=δ)
     ρ = (post=ρ_post, marg=ρ_marg)
 
     series = get_series(ρ_marg, t, β_ci=β_ci, logscale=logscale)
@@ -60,7 +61,6 @@ function decompose(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
     ϵ_filter = mean(ϵ_keep) ± quantile(Normal(), 1-α/2)*std(ϵ_keep)
     outliers = .!(ϵ_filter[1] .≤ ϵ .≤ ϵ_filter[2])
     keep_filter = .!outliers .&& keep
-    # outliers = findall(outliers)    # index rather than BitVector...?
 
     comp = run_decomp(y, t, θ=comp.θ, logscale=logscale, fix=fix, keep=keep_filter, β_ci=β_ci, rate=filter_outliers, fast_rate=fast_rate, δ=δ)
 

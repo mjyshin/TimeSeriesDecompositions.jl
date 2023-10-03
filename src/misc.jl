@@ -11,22 +11,32 @@ init_params(θ::Param, fix::Vector{<:Symbol}) = (
     σ_ϵ = param_type(θ.σ_ϵ, :σ_ϵ ∈ fix)
 )
 
-function get_marg(ρ_post::PosteriorGP, ȳ::Real=0; rate::Bool=true, fast_rate::Bool=false, δ::Real=1e-12)
-    ρ_y(t::AbstractVector{<:Real}) = marginals(ρ_post(GPPPInput(:y, t), δ)) .+ ȳ
+function normalize(x::AbstractVector{<:Real})
+    x̄ = mean(x)
+    x_zero = x .- x̄
+    sx = std(x_zero)
+    x_norm = x_zero/sx
+
+    return x_norm, x̄, sx
+end
+
+function get_marg(ρ_post::PosteriorGP, ȳ::Real=0, sy::Real=1; rate::Bool=true, fast_rate::Bool=false, δ::Real=1e-12)
+    ρ_y(t::AbstractVector{<:Real}) = sy*marginals(ρ_post(GPPPInput(:y, t), δ)) .+ ȳ
     ρ_y(t::Real) = ρ_y([t])[1]
-    ρ_x̄(t::AbstractVector{<:Real}) = marginals(ρ_post(GPPPInput(:x̄, t), δ)) .+ ȳ
+    ρ_x̄(t::AbstractVector{<:Real}) = sy*marginals(ρ_post(GPPPInput(:x̄, t), δ)) .+ ȳ
     ρ_x̄(t::Real) = ρ_x̄([t])[1]
-    ρ_x̃(t::AbstractVector{<:Real}) = marginals(ρ_post(GPPPInput(:x̃, t), δ))
+    ρ_x̃(t::AbstractVector{<:Real}) = sy*marginals(ρ_post(GPPPInput(:x̃, t), δ))
     ρ_x̃(t::Real) = ρ_x̃([t])[1]
-    ρ_ϵ(t::AbstractVector{<:Real}) = marginals(ρ_post(GPPPInput(:ϵ, t), δ))
+    ρ_ϵ(t::AbstractVector{<:Real}) = sy*marginals(ρ_post(GPPPInput(:ϵ, t), δ))
     ρ_ϵ(t::Real) = ρ_ϵ([t])[1]
 
     ρ_marg = (y=ρ_y, x̄=ρ_x̄, x̃=ρ_x̃, ϵ=ρ_ϵ)
 
     if rate
-        ρ_r(t::AbstractVector{<:Real}) = fast_rate ? Normal.(fast_deriv(ρ_x̄, t), 0) : marginals(ρ_post(GPPPInput(:r, Float64.(t)), δ))
-        # ρ_r(t::Real) = ρ_r([t])[1]    # errors out... for fast_rate == false
-        ρ_r(t::Real) = ρ_r([t-eps(), t, t+eps()])[2]
+        ρ_r(t::AbstractVector{<:Real}) = fast_rate ? sy*Normal.(fast_deriv(ρ_x̄, t), 0) :
+                                         length(t) == 1 ? [ρ_r(t[1])] :    # see definition below
+                                         sy*marginals(ρ_post(GPPPInput(:r, Float64.(t)), δ))
+        ρ_r(t::Real) = fast_rate ? ρ_r([t])[1] : ρ_r([t-eps(), t, t+eps()])[2]
         ρ_marg = (ρ_marg..., r=ρ_r)
     end
 
@@ -55,7 +65,7 @@ function get_series(ρ_marg::MarginalDens, t::Union{Real, AbstractVector{<:Real}
     if logscale
         y, l_y, u_y = [expm1.(v) for v ∈ (y, l_y, u_y)]
         x̄, l_x̄, u_x̄ = [expm1.(v) for v ∈ (x̄, l_x̄, u_x̄)]
-        x̃, l_x̃, u_x̃ = [exp.(v) for v ∈ (x̄, l_x̄, u_x̄)]
+        x̃, l_x̃, u_x̃ = [exp.(v) for v ∈ (x̃, l_x̃, u_x̃)]
         ϵ, l_ϵ, u_ϵ = [exp.(v) for v ∈ (ϵ, l_ϵ, u_ϵ)]
     end
 
