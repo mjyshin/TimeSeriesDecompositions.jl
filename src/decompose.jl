@@ -1,8 +1,8 @@
 function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
-                    θ::NamedTuple=NamedTuple(), logscale::Bool=false,
+                    θ::NamedTuple=NamedTuple(), logscale::Bool=logscale,
                     fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),
-                    keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=0.95,
-                    rate::Bool=false, fast_rate::Bool=false, δ::Real=1e-12)
+                    keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=β_ci,
+                    rate::Bool=rate, fast_rate::Bool=fast_rate, δ::Real=δ)
     @assert length(y) == length(t) == length(keep)
     data = (y=y, t=t)
     y = logscale ? log1p.(y) : y    # okay as long as y >> 0
@@ -10,8 +10,6 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
 
     # Set up inputted series
     𝓉 = GPPPInput(:y, t[keep])
-    # ȳ = mean(y[keep])
-    # 𝓎 = y[keep] .- ȳ    # zero-mean the series
     𝓎, ȳ, sy = normalize(y[keep])    # normalize the series
 
     # Compute optimal params
@@ -47,11 +45,11 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
 end
 
 function decompose(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
-                   θ::NamedTuple=NamedTuple(), logscale::Bool=false,
+                   θ::NamedTuple=NamedTuple(), logscale::Bool=logscale,
                    fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),
-                   keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=0.95,
-                   filter_outliers::Bool=false, β_outliers::Real=0.95,
-                   fast_rate::Bool=false, δ::Real=1e-12)
+                   keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=β_ci,
+                   filter_outliers::Bool=filter_outliers, β_outliers::Real=β_outliers,
+                   fast_rate::Bool=fast_rate, δ::Real=δ)
     comp = run_decomp(y, t, θ=θ, logscale=logscale, fix=fix, keep=keep, β_ci=β_ci, rate=!filter_outliers, fast_rate=fast_rate, δ=δ)
     if !filter_outliers return (comp..., outliers=falses(length(y))) end
 

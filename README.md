@@ -98,10 +98,10 @@ NB: Any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in
 
 ### Code for optimization and differentiation
 
-https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/extended_mauna_loa/
-https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/differentiation/
+1. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/extended_mauna_loa/
+2. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/differentiation/
 
 
 ### On GPs more generally
 
-C. E. Rasmussen & C. K. I. Williams, Gaussian Processes for Machine Learning, the MIT Press, 2006, ISBN 026218253X. © 2006 Massachusetts Institute of Technology. [www.GaussianProcess.org/gpml](https://gaussianprocess.org/gpml/)
+3. C. E. Rasmussen & C. K. I. Williams, Gaussian Processes for Machine Learning, the MIT Press, 2006, ISBN 026218253X. © 2006 Massachusetts Institute of Technology. [www.GaussianProcess.org/gpml](https://gaussianprocess.org/gpml/)
