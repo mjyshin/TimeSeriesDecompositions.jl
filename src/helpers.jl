@@ -31,13 +31,13 @@ function get_series(ρ_marg::MarginalDens, t::Union{Real, AbstractVector{<:Real}
     α = 1 - β_ci
     z = quantile(Normal(), 1-α/2)
 
-    series = []
+    series = NamedTuple[]
     for (f, ρ) ∈ zip(keys(ρ_marg), ρ_marg)
         μ = mean.(ρ(t))
         σ = std.(ρ(t))
         l, u = μ ± z*σ
 
-        if logscale
+        if logscale    # undo log1p/log
             if f ∈ [:y, :x̄] μ, l, u = [expm1.(v) for v ∈ [μ, l, u]]
             elseif f ∈ [:x̃, :ϵ] μ, l, u = [exp.(v) for v ∈ [μ, l, u]] end
         end
@@ -52,10 +52,10 @@ function get_series(ρ_marg::MarginalDens′, t::Union{Real, AbstractVector{<:Re
 
     α = 1 - β_ci
     z = quantile(Normal(), 1-α/2)
-    r = mean.(ρ_marg.r(t))
-    σ_r = std.(ρ_marg.r(t))
-    l_r, u_r = r ± z*σ_r
-    series = (series..., r=(μ=r, l=l_r, u=u_r))
+    μ = mean.(ρ_marg.r(t))
+    σ = std.(ρ_marg.r(t))
+    l, u = μ ± z*σ
+    series = (series..., r=(μ=μ, l=l, u=u))
 
     return series
 end

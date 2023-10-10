@@ -15,7 +15,7 @@ init_params(θ::Param, fix::Vector{<:Symbol}) = (
     σ_ϵ = param_type(θ.σ_ϵ, :σ_ϵ ∈ fix)
 )
 
-function build_gp(θ::Param, rate::Bool=false)
+function build_gp(θ::Param, rate::Bool=rate)
     if rate
         return @gppp let
             # Seasonal-trend decomposition with rate

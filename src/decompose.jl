@@ -24,6 +24,10 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
         # Initialize params with default := 1
         θ = toθ([key ∈ keys(θ) ? θ[key] : 1 for key ∈ θkeys])
         @assert prod(values(θ) .≥ 0)
+        if θ.σ_x̄ == 0 && :σ_x̄ ∈ fix
+            push!(fix, :l_x̄)    # no need to optimize x̄ params
+            fix = unique(fix)
+        end
         if θ.σ_x̃ == 0 && :σ_x̃ ∈ fix
             push!(fix, :l_x̃, :T_x̃)    # no need to optimize x̃ params
             fix = unique(fix)
