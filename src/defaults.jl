@@ -1,4 +1,5 @@
 const logscale::Bool = false
+const norm::Bool = true
 const β_ci::Real = 0.95
 const rate::Bool = false
 const fast_rate::Bool = false

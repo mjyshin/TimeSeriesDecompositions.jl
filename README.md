@@ -36,16 +36,16 @@ $$y(t) := \bar x(t) + \tilde x(t) + \epsilon(t),$$
 but it is important to note that while $y(t_n) \approx y_n$ generally, they need not be equivalent, for example, when filtering out outliers to ensure stationarity of the noise model $\epsilon(t)$.
 
 Finally, we also derive a model $r(t)$ for the **rate** of change of the trend model, defined by the ordinary differential equation (ODE)
-$$r(t) := \frac{\mathrm d\bar x(t)}{\mathrm dt}.$$
+$$r(t) := \frac{\text d\bar x(t)}{\text dt}.$$
 
-NB: We have used a slight abuse of notation for simplicity of explanation; the model $f(t)$ that is actually estimated is a GP (a _distribution_ of paths) with a mean function and covariance kernel. Here, we use the GP and its mean function interchangeably.
+NB: We have used a slight abuse of notation for simplicity of explanation; the model $f(t)$ that is actually estimated is a GP (a _distribution_ of paths $\rho[f](t)$) with posterior mean and variance functions. Here, we use the GP and its posterior mean function interchangeably.
 
 ### Logarithmic data
 
 The above description is for linear (additive) time series. For data in the logarithmic (multiplicative) scale where $y_n \geq 0$, the decomposition of the data model is the product
 $$y(t) := \bar x(t) \cdot \tilde x(t) \cdot \epsilon(t),$$
 and the rate $r(t)$ is the exponential growth rate defined by the ODE
-$$\frac{\mathrm d\bar x(t)}{\mathrm dt} = r(t)\bar x(t).$$
+$$\frac{\text d\bar x(t)}{\text dt} = r(t)\bar x(t).$$
 
 One big advantages of using GPs for time series analysis is that the _data need not be uniformly sampled_!!! :) So you can feel free to remove unwanted data points or use noninteger times (or even have redundant data, i.e., multiple data for a single "time" point, especially for non time series applications).
 

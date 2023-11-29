@@ -1,16 +1,16 @@
 function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
-                    θ::NamedTuple=NamedTuple(), logscale::Bool=logscale,
+                    θ::NamedTuple=NamedTuple(), logscale::Bool=logscale, norm::Bool=norm,
                     fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),
                     keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=β_ci,
                     rate::Bool=rate, fast_rate::Bool=fast_rate, δ::Real=δ)
     @assert length(y) == length(t) == length(keep)
-    data = (y=y, t=t)
+    data = (t=t, y=y)
     y = logscale ? log1p.(y) : y    # okay as long as y >> 0
     fix = unique(Symbol.(fix))
 
     # Set up inputted series
     𝓉 = GPPPInput(:y, t[keep])
-    𝓎, ȳ, sy = normalize(y[keep])    # normalize the series
+    𝓎, ȳ, sy = norm ? normalize(y[keep]) : (demean(y[keep])..., 1)    # normalize the series
 
     # Compute optimal params
     if prod(θkeys .∈ Ref(fix))    # CASE 1: FIX ALL PARAMS
@@ -49,7 +49,7 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
 end
 
 function decompose(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
-                   θ::NamedTuple=NamedTuple(), logscale::Bool=logscale,
+                   θ::NamedTuple=NamedTuple(), logscale::Bool=logscale, norm::Bool=norm,
                    fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),
                    keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=β_ci,
                    filter_outliers::Bool=filter_outliers, β_outliers::Real=β_outliers,

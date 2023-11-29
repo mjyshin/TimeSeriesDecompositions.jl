@@ -1,13 +1,17 @@
-function normalize(y::AbstractVector{<:Real})
+function demean(y::Vector{<:Real})
     ȳ = mean(y)
-    y_zero = y .- ȳ    # zero mean data
-    sy = std(y_zero)
-    y_norm = y_zero/sy    # normalize data
 
-    return y_norm, ȳ, sy
+    return y .- ȳ, ȳ
 end
 
-function deslope(y::AbstractVector{<:Real}, t::AbstractVector{<:Real}=1:length(y))
+function normalize(y::Vector{<:Real})
+    y_zero, ȳ = demean(y)    # zero mean data
+    sy = std(y_zero)
+
+    return y_zero/sy, ȳ, sy
+end
+
+function deslope(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y))
     @assert length(y) == length(t)
     X = [ones(length(t)) t]
     w = (X'*X)\X'*y    # peudoinverse method

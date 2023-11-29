@@ -43,7 +43,7 @@ function get_series(ρ_marg::MarginalDens, t::Union{Real, AbstractVector{<:Real}
         end
         push!(series, (μ=μ, l=l, u=u))
     end
-    series = (; (keys(ρ_marg) .=> series)...)
+    series = (; t=t, (keys(ρ_marg) .=> series)...)
 
     return series
 end
