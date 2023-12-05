@@ -1,6 +1,6 @@
 function ℒ(θ, 𝓉, 𝓎)
     𝒢𝒫 = build_gp(θ)
-    return -logpdf(𝒢𝒫(𝓉, 0.0), 𝓎)    # zero data noise
+    return -logpdf(𝒢𝒫(𝓉, 0.0), 𝓎)    # NLL with zero data noise
 end
 
 default_optimizer = LBFGS(;
