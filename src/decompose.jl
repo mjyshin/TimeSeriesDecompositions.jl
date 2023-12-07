@@ -14,22 +14,24 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
 
     # Compute optimal params
     if prod(θkeys .∈ Ref(fix))    # CASE 1: FIX ALL PARAMS
-        θ = toθ([θ.σ_x̄, θ.l_x̄, θ.σ_x̃, θ.l_x̃, θ.T_x̃, θ.σ_ϵ])
+        θ = normalize(toθ([θ.σ_x̄, θ.l_x̄, θ.σ_x̃, θ.l_x̃, θ.T_x̃, θ.σ_ϵ]), sy)
         @assert prod(values(θ) .≥ 0)
         θ̂ = θ    # no need to optimize
     else    # CASE 2: FIT AT LEAST ONE PARAM
         # Don't fix params that are not specified in θ
         for key ∈ θkeys fix = key ∉ keys(θ) ? fix[fix .!= key] : fix end
 
-        # Initialize params with default := 1
+        # Initialize unspecified params with default := 1
+        θ = normalize(toθ([key ∈ keys(θ) ? θ[key] : 1 for key ∈ θkeys]), sy)
         θ = toθ([key ∈ keys(θ) ? θ[key] : 1 for key ∈ θkeys])
         @assert prod(values(θ) .≥ 0)
+
         if θ.σ_x̄ == 0 && :σ_x̄ ∈ fix
-            push!(fix, :l_x̄)    # no need to optimize x̄ params
+            push!(fix, :l_x̄)    # no need to optimize other x̄ params
             fix = unique(fix)
         end
         if θ.σ_x̃ == 0 && :σ_x̃ ∈ fix
-            push!(fix, :l_x̃, :T_x̃)    # no need to optimize x̃ params
+            push!(fix, :l_x̃, :T_x̃)    # no need to optimize other x̃ params
             fix = unique(fix)
         end
 
@@ -45,7 +47,7 @@ function run_decomp(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
 
     series = get_series(ρ_marg, t, β_ci=β_ci, logscale=logscale)
 
-    return (data=data, series=series, θ=θ̂, ρ=ρ)
+    return (data=data, series=series, θ=denormalize(θ̂, sy), ρ=ρ)
 end
 
 function decompose(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
@@ -54,17 +56,18 @@ function decompose(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y);
                    keep::AbstractVector{Bool}=trues(length(y)), β_ci::Real=β_ci,
                    filter_outliers::Bool=filter_outliers, β_outliers::Real=β_outliers,
                    fast_rate::Bool=fast_rate, δ::Real=δ)
-    comp = run_decomp(y, t, θ=θ, logscale=logscale, fix=fix, keep=keep, β_ci=β_ci, rate=!filter_outliers, fast_rate=fast_rate, δ=δ)
+    comp = run_decomp(y, t, θ=θ, logscale=logscale, norm=norm, fix=fix, keep=keep, β_ci=β_ci, rate=!filter_outliers, fast_rate=fast_rate, δ=δ)
     if !filter_outliers return (comp..., outliers=falses(length(y))) end
 
     ϵ = logscale ? log.(comp.series.ϵ.μ) : comp.series.ϵ.μ
     ϵ_keep = ϵ[keep]
     α = 1 - β_outliers
-    ϵ_filter = mean(ϵ_keep) ± quantile(Normal(), 1-α/2)*std(ϵ_keep)
+    # ϵ_filter = mean(ϵ_keep) ± quantile(Normal(), 1-α/2)*std(ϵ_keep)
+    ϵ_filter = 0 ± quantile(Normal(), 1-α/2)*comp.θ.σ_ϵ
     outliers = .!(ϵ_filter[1] .≤ ϵ .≤ ϵ_filter[2])
     keep_filter = .!outliers .&& keep
 
-    comp = run_decomp(y, t, θ=comp.θ, logscale=logscale, fix=fix, keep=keep_filter, β_ci=β_ci, rate=filter_outliers, fast_rate=fast_rate, δ=δ)
+    comp = run_decomp(y, t, θ=comp.θ, logscale=logscale, norm=norm, fix=fix, keep=keep_filter, β_ci=β_ci, rate=filter_outliers, fast_rate=fast_rate, δ=δ)
 
     return (comp..., outliers=outliers)
 end
