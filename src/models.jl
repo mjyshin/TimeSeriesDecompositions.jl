@@ -1,6 +1,7 @@
 θkeys = (:σ_x̄, :l_x̄, :σ_x̃, :l_x̃, :T_x̃, :σ_ϵ)
 Param = NamedTuple{θkeys, <:NTuple{6, Real}}
 toθ(v::Vector{<:Real}) = (; (θkeys .=> v)...)
+toθ(θ::NamedTuple) = toθ([key ∈ keys(θ) ? θ[key] : 1 for key ∈ θkeys])
 
 param_type(θ::Real, isfixed::Bool) = isfixed ? fixed(Float64(θ)) : positive(Float64(θ))
 

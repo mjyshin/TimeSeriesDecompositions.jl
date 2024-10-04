@@ -1,6 +1,6 @@
-function ℒ(θ, 𝓉, 𝓎)
+function ℒ(θ, t, y)
     𝒢𝒫 = build_gp(θ)
-    return -logpdf(𝒢𝒫(𝓉, 0.0), 𝓎)    # NLL with zero data noise
+    return -logpdf(𝒢𝒫(t, 0.0), y)    # NLL with zero data noise
 end
 
 default_optimizer = LBFGS(;
@@ -8,10 +8,10 @@ default_optimizer = LBFGS(;
     linesearch=Optim.LineSearches.BackTracking(),
 )
 
-function optimize_loss(loss, θ0; optimizer=default_optimizer, maxiter=1_000)
+function optimize_loss(loss, θ₀; optimizer=default_optimizer, maxiter=1_000)
     options = Optim.Options(; iterations=maxiter, show_trace=false)
 
-    θ0_flat, unflatten = ParameterHandling.value_flatten(θ0)
+    θ₀_flat, unflatten = ParameterHandling.value_flatten(θ₀)
     loss_packed = loss ∘ unflatten
 
     # https://julianlsolvers.github.io/Optim.jl/stable/#user/tipsandtricks/#avoid-repeating-computations
@@ -29,7 +29,7 @@ function optimize_loss(loss, θ0; optimizer=default_optimizer, maxiter=1_000)
         end
     end
 
-    result = optimize(Optim.only_fg!(fg!), θ0_flat, optimizer, options; inplace=false)
+    result = optimize(Optim.only_fg!(fg!), θ₀_flat, optimizer, options; inplace=false)
 
     return unflatten(result.minimizer)
 end

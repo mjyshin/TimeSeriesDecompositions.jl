@@ -23,7 +23,7 @@ include("derivatives.jl")
 include("optimize.jl")
 
 include("helpers.jl")
-export get_series
+export comp_decomp
 
 include("decompose.jl")
 export decompose

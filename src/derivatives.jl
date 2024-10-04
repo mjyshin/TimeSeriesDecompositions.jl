@@ -16,16 +16,16 @@ end
 
 function cov((_, f)::deriv_args, x::AbstractVector{<:Real}, x′::AbstractVector{<:Real})
     fdm = central_fdm(5, 1)
-    cols_of_C = map(x′) do x′n
-        col_elements = map(x) do xn
+    cols_of_C = map(x′) do x′ₙ
+        col_elements = map(x) do xₙ
             FiniteDifferences.grad(
                 fdm,
-                xn -> FiniteDifferences.grad(
+                xₙ -> FiniteDifferences.grad(
                     fdm,
-                    x′n -> cov(f, [xn], [x′n]),
-                    x′n,
+                    x′ₙ -> cov(f, [xₙ], [x′ₙ]),
+                    x′ₙ,
                 ),
-                xn
+                xₙ
             )[1]
         end
     end
@@ -33,15 +33,15 @@ function cov((_, f)::deriv_args, x::AbstractVector{<:Real}, x′::AbstractVector
 end
 function var((_, f)::deriv_args, x::AbstractVector{<:Real}, x′::AbstractVector{<:Real})
     fdm = central_fdm(5, 1)
-    elements = map(x, x′) do xn, x′n
+    elements = map(x, x′) do xₙ, x′ₙ
         FiniteDifferences.grad(
             fdm,
-            xn -> FiniteDifferences.grad(
+            xₙ -> FiniteDifferences.grad(
                 fdm,
-                x′n -> cov(f, [xn], [x′n]),
-                x′n,
+                x′ₙ -> cov(f, [xₙ], [x′ₙ]),
+                x′ₙ,
             ),
-            xn
+            xₙ
         )[1]
     end
     return reduce(vcat, elements)
@@ -54,12 +54,12 @@ function cov(
     x′::AbstractVector{<:Real},
 )
     fdm = central_fdm(5, 1)
-    cols_of_C = map(x′) do x′n
-        col_elements = map(x) do xn
+    cols_of_C = map(x′) do x′ₙ
+        col_elements = map(x) do xₙ
             FiniteDifferences.grad(
                 fdm,
-                xn -> cov(f, [xn], [x′n]),
-                xn,
+                xₙ -> cov(f, [xₙ], [x′ₙ]),
+                xₙ,
             )[1]
         end
     end
