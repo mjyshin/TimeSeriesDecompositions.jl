@@ -43,7 +43,7 @@ function comp_marg(
 
     ρ_marg = (y=ρ_y, x̄=ρ_x̄, x̃=ρ_x̃, ϵ=ρ_ϵ)
 
-    if rate
+    if rate || fast_rate
         ρ_r(t::AbstractVector{<:Real}) = fast_rate ? Normal.(fast_deriv(ρ_x̄, t), 0) :
                                          length(t) == 1 ? [ρ_r(t[1])] :    # see definition below
                                          s_y*marginals(ρ_post(GPPPInput(:r, Float64.(t)), δ))

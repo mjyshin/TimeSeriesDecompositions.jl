@@ -10,7 +10,7 @@ const δ::Real = 1e-12
 const filter_outliers::Bool = false
 const β_outliers::Real = 0.95
 const dynamic::Bool = false
-const n_dynamic::Int=1
+const n_dynamic::Int = 1
 
 # Rate computation defaults
 const rate::Bool = false
