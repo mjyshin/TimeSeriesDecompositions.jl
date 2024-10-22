@@ -6,6 +6,7 @@ using FiniteDifferences
 using KernelFunctions
 using Optim
 using ParameterHandling
+using ProgressMeter
 using Statistics
 using Stheno
 using Zygote

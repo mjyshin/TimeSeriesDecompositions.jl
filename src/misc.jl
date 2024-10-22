@@ -10,9 +10,9 @@ function normalize(y::Vector{<:Real})
 
     return y_zero/s_y, ȳ, s_y
 end
-normalize(θ::Param, s_y::Real) = toθ([θ.σ_x̄/s_y, θ.l_x̄, θ.σ_x̃/s_y, θ.l_x̃, θ.T_x̃, θ.σ_ϵ/s_y])
+normalize(θ::Param, s_y::Real) = toθ([θ.σ_x̄/s_y, θ.l_x̄, θ.σ_x̃/s_y, θ.l_x̃, θ.T, θ.σ_ϵ/s_y])
 denormalize(y::Vector{<:Real}, ȳ::Real, s_y::Real) = s_y*y .+ ȳ
-denormalize(θ::Param, s_y::Real) = toθ([θ.σ_x̄*s_y, θ.l_x̄, θ.σ_x̃*s_y, θ.l_x̃, θ.T_x̃, θ.σ_ϵ*s_y])
+denormalize(θ::Param, s_y::Real) = toθ([θ.σ_x̄*s_y, θ.l_x̄, θ.σ_x̃*s_y, θ.l_x̃, θ.T, θ.σ_ϵ*s_y])
 
 function deslope(y::Vector{<:Real}, t::AbstractVector{<:Real}=1:length(y))
     @assert length(y) == length(t)

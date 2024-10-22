@@ -21,7 +21,7 @@ function run_dynamic_decomp(
         x̃::Union{Nothing, Vector{<:Real}}=nothing, t_out::AbstractVector{<:Real}=t,
         θ::NamedTuple=NamedTuple(), fix::Vector{Symbol}=collect(keys(θ)),
         norm::Bool=norm, logscale::Bool=logscale, β_ci::Union{Real, Vector{<:Real}}=β_ci,
-        rate::Bool=rate, fast_rate::Bool=fast_rate, δ::Real=δ
+        rate::Bool=rate, fast_rate::Bool=fast_rate, progress::Bool=progress, parallel::Bool=parallel, δ::Real=δ
     )
     # Ensure x̄ params are fixed
     if !(:σ_x̄ ∈ fix && :l_x̄ ∈ fix)
@@ -35,25 +35,41 @@ function run_dynamic_decomp(
         end
         ȳ = y - x̃    # deseasonalized data
         out = run_static_decomp(ȳ, t,
-            t_out=[0], θ=(θ..., σ_x̃=0), fix=unique([fix..., :σ_x̃, :l_x̃, :T_x̃]),
+            t_out=[0], θ=(θ..., σ_x̃=0), fix=unique([fix..., :σ_x̃, :l_x̃, :T]),
             norm=norm, logscale=logscale, β_ci=β_ci, rate=false, fast_rate=false, save=false, δ=δ
         )
-        θ = delete(out.θ, :σ_x̃)
-        fix = unique([fix..., :σ_x̄, :l_x̄, :T_x̃])
+        θ = :σ_x̃ ∈ keys(θ) ? (out.θ..., σ_x̃=θ.σ_x̃) : delete(out.θ, :σ_x̃)
+        fix = unique([fix..., :σ_x̄, :l_x̄, :T])
     end
 
     # Loop over t_out
-    θs = Param[]
-    decomp = []
-    for tₙ ∈ t_out
-        keep = tₙ-bw/2-eps() .≤ t .≤ tₙ+bw/2+eps()
-        opt = optim_post(y[keep], t[keep], norm, θ, fix, rate)
+    N = length(t_out)
+    θs = Vector{Param}(undef, N)
+    decomp = Vector{NamedTuple}(undef, N)
+    if progress pm = Progress(N) end
+    if parallel
+        Threads.@threads for n ∈ 1:N
+            tₙ = t_out[n]
+            keep = tₙ-bw/2-eps() .≤ t .≤ tₙ+bw/2+eps()
+            opt = optim_post(y[keep], t[keep], norm, θ, fix, rate)
 
-        ρ_marg = comp_marg(opt.ρ_post, opt.ȳ, opt.s_y, rate=rate, fast_rate=fast_rate, δ=δ)
-        push!(decomp, comp_decomp(ρ_marg, tₙ, β_ci=β_ci, logscale=logscale))
-        θ = opt.θ
-        push!(θs, θ)
+            ρ_marg = comp_marg(opt.ρ_post, opt.ȳ, opt.s_y, rate=rate, fast_rate=fast_rate, δ=δ)
+            decomp[n] = comp_decomp(ρ_marg, tₙ, β_ci=β_ci, logscale=logscale)
+            θs[n] = opt.θ
+            if progress next!(pm) end
+        end
+    else
+        for (n, tₙ) ∈ enumerate(t_out)
+            keep = tₙ-bw/2-eps() .≤ t .≤ tₙ+bw/2+eps()
+            opt = optim_post(y[keep], t[keep], norm, θ, fix, rate)
+
+            ρ_marg = comp_marg(opt.ρ_post, opt.ȳ, opt.s_y, rate=rate, fast_rate=fast_rate, δ=δ)
+            decomp[n] = comp_decomp(ρ_marg, tₙ, β_ci=β_ci, logscale=logscale)
+            θs[n] = opt.θ
+            if progress next!(pm) end
+        end
     end
+    if progress finish!(pm) end
 
     # Concatenate decompositions
     mkeys = rate || fast_rate ? margkeys′ : margkeys
@@ -77,9 +93,10 @@ function decompose(
         keep::AbstractVector{Bool}=trues(length(y)), t_out::AbstractVector{<:Real}=copy(t),
         logscale::Bool=logscale, norm::Bool=norm, slope::Bool=slope,    # preprocess
         θ::NamedTuple=NamedTuple(), fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),    # params
-        β_ci::Union{Real, Vector{<:Real}}=β_ci, rate::Bool=rate, fast_rate::Bool=fast_rate, save::Bool=save, δ::Real=δ,
+        β_ci::Union{Real, Vector{<:Real}}=β_ci, rate::Bool=rate, fast_rate::Bool=fast_rate,
         filter_outliers::Bool=filter_outliers, β_outliers::Real=β_outliers,    # outliers
-        dynamic::Bool=dynamic, n_dynamic::Int=n_dynamic, bw::Real=:T_x̃ ∈ keys(θ) ? 6θ.T_x̃ : 0
+        dynamic::Bool=dynamic, n_dynamic::Int=n_dynamic, bw::Real=:T ∈ keys(θ) ? 6θ.T : 0,
+        progress::Bool=progress, parallel::Bool=parallel, save::Bool=save, δ::Real=δ
     )
     # 1. Preprocess data
     @assert length(y) == length(t) == length(keep)
@@ -97,8 +114,8 @@ function decompose(
         fix = unique([fix..., :l_x̄])    # no need to optimize other x̄ params
     end
     if :σ_x̃ ∈ keys(θ) && iszero(θ.σ_x̃) && :σ_x̃ ∈ fix    # no seasonality
-        θ = (θ..., l_x̃=Inf, T_x̃=Inf)
-        fix = unique([fix..., :l_x̃, :T_x̃])    # no need to optimize other x̃ params
+        θ = (θ..., l_x̃=Inf, T=Inf)
+        fix = unique([fix..., :l_x̃, :T])    # no need to optimize other x̃ params
     end
 
     # 3. Run decomposition
@@ -109,16 +126,16 @@ function decompose(
         if n_dynamic > 1
             for _ ∈ 1:n_dynamic-1
                 out = run_dynamic_decomp(y, t, bw,
-                    x̃=x̃, t_out=t, θ=θ, fix=fix, norm=norm, logscale=logscale,
-                    β_ci=β_ci, rate=false, fast_rate=false, δ=δ
+                    x̃=x̃, t_out=t, θ=θ, fix=fix, norm=norm, logscale=logscale, β_ci=β_ci,
+                    rate=false, fast_rate=false, progress=progress, parallel=parallel, δ=δ
                 )
                 x̃ = out.decomp.x̃.μ
                 θ = out.θ[end]
             end
         end
         out = run_dynamic_decomp(y, t, bw,
-            x̃=x̃, t_out=t_out, θ=θ, fix=fix, norm=norm, logscale=logscale,
-            β_ci=β_ci, rate=rate, fast_rate=fast_rate, δ=δ
+            x̃=x̃, t_out=t_out, θ=θ, fix=fix, norm=norm, logscale=logscale, β_ci=β_ci,
+            rate=rate, fast_rate=fast_rate, progress=progress, parallel=parallel, δ=δ
         )
     else
         out = run_static_decomp(y, t,

@@ -11,6 +11,8 @@ const filter_outliers::Bool = false
 const β_outliers::Real = 0.95
 const dynamic::Bool = false
 const n_dynamic::Int = 1
+const progress::Bool = false
+const parallel::Bool = false
 
 # Rate computation defaults
 const rate::Bool = false
