@@ -102,7 +102,7 @@ function decompose(
         θ::NamedTuple=NamedTuple(), fix::Vector{<:Union{Symbol, String}}=collect(keys(θ)),    # params
         β_ci::Union{Real, Vector{<:Real}}=β_ci, rate::Bool=rate, fast_rate::Bool=fast_rate,
         filter_outliers::Bool=filter_outliers, β_outliers::Real=β_outliers,    # outliers
-        dynamic::Bool=dynamic, n_dynamic::Int=n_dynamic, bw::Real=:T ∈ keys(θ) ? 6θ.T : 0,
+        dynamic::Bool=dynamic, n_dynamic::Int=n_dynamic, bw::Real=:T ∈ keys(θ) ? 10θ.T : 0,
         progress::Bool=progress, parallel::Bool=parallel, save::Bool=save, δ::Real=δ
     )
     # 1. Preprocess data
