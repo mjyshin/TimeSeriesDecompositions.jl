@@ -1,6 +1,6 @@
 function run_static_decomp(
         y::Vector{<:Real}, t::AbstractVector{<:Real};
-        t_out::AbstractVector{<:Real}=t, θ::NamedTuple=NamedTuple(), fix::Vector{Symbol}=collect(keys(θ)),
+        t_out::Union{Real, AbstractVector{<:Real}}=copy(t), θ::NamedTuple=NamedTuple(), fix::Vector{Symbol}=collect(keys(θ)),
         norm::Bool=norm, logscale::Bool=logscale, β_ci::Union{Real, Vector{<:Real}}=β_ci,
         rate::Bool=rate, fast_rate::Bool=fast_rate, save::Bool=save, δ::Real=δ
     )
@@ -18,7 +18,7 @@ end
 
 function run_dynamic_decomp(
         y::Vector{<:Real}, t::AbstractVector{<:Real}, bw::Real;
-        x̃::Union{Nothing, Vector{<:Real}}=nothing, t_out::AbstractVector{<:Real}=t,
+        x̃::Union{Nothing, Vector{<:Real}}=nothing, t_out::Union{Real, AbstractVector{<:Real}}=copy(t),
         θ::NamedTuple=NamedTuple(), fix::Vector{Symbol}=collect(keys(θ)),
         norm::Bool=norm, logscale::Bool=logscale, β_ci::Union{Real, Vector{<:Real}}=β_ci,
         rate::Bool=rate, fast_rate::Bool=fast_rate, progress::Bool=progress, parallel::Bool=parallel, δ::Real=δ
@@ -32,6 +32,7 @@ function run_dynamic_decomp(
             )
             x̃ = out.decomp.x̃.μ
             θ = out.θ
+            # out = nothing
         end
         ȳ = y - x̃    # deseasonalized data
         out = run_static_decomp(ȳ, t,
@@ -40,52 +41,58 @@ function run_dynamic_decomp(
         )
         θ = :σ_x̃ ∈ keys(θ) ? (out.θ..., σ_x̃=θ.σ_x̃) : delete(out.θ, :σ_x̃)
         fix = unique([fix..., :σ_x̄, :l_x̄, :T])
+        out = nothing
+        GC.gc()
     end
 
     # Loop over t_out
     N = length(t_out)
-    θs = Vector{Param}(undef, N)
-    decomp = Vector{NamedTuple}(undef, N)
+    h = bw/2 + eps()    # sliding window radius
+    θs = Vector{Param}(undef, N)    # init params
+    decomps = Vector{NamedTuple}(undef, N)    # init decomps
     if progress pm = Progress(N) end
     if parallel
         Threads.@threads for n ∈ 1:N
             tₙ = t_out[n]
-            keep = tₙ-bw/2-eps() .≤ t .≤ tₙ+bw/2+eps()
-            opt = optim_post(y[keep], t[keep], norm, θ, fix, rate)
-
-            ρ_marg = comp_marg(opt.ρ_post, opt.ȳ, opt.s_y, rate=rate, fast_rate=fast_rate, δ=δ)
-            decomp[n] = comp_decomp(ρ_marg, tₙ, β_ci=β_ci, logscale=logscale)
-            θs[n] = opt.θ
+            keep = tₙ - h .≤ t .≤ tₙ + h
+            tmp = run_static_decomp(y[keep], t[keep],
+                t_out=tₙ, θ=θ, fix=fix, norm=norm, logscale=logscale,
+                β_ci=β_ci, rate=rate, fast_rate=fast_rate, save=false, δ=δ
+            )
+            θs[n] = tmp.θ
+            decomps[n] = tmp.decomp
             if progress next!(pm) end
         end
     else
         for (n, tₙ) ∈ enumerate(t_out)
-            keep = tₙ-bw/2-eps() .≤ t .≤ tₙ+bw/2+eps()
-            opt = optim_post(y[keep], t[keep], norm, θ, fix, rate)
-
-            ρ_marg = comp_marg(opt.ρ_post, opt.ȳ, opt.s_y, rate=rate, fast_rate=fast_rate, δ=δ)
-            decomp[n] = comp_decomp(ρ_marg, tₙ, β_ci=β_ci, logscale=logscale)
-            θs[n] = opt.θ
+            keep = tₙ - h .≤ t .≤ tₙ + h
+            out = run_static_decomp(y[keep], t[keep],
+                t_out=tₙ, θ=θ, fix=fix, norm=norm, logscale=logscale,
+                β_ci=β_ci, rate=rate, fast_rate=fast_rate, save=false, δ=δ
+            )
+            θs[n] = out.θ
+            decomps[n] = out.decomp
             if progress next!(pm) end
         end
+        out = nothing
     end
     if progress finish!(pm) end
 
     # Concatenate decompositions
     mkeys = rate || fast_rate ? margkeys′ : margkeys
-    decomp = (; (mkeys .=> [getindex.(decomp, key) for key ∈ mkeys])...)
-    for (key, value) ∈ pairs(decomp)
-        comp = NamedTuple()
+    decomps = (; (mkeys .=> [getindex.(decomps, key) for key ∈ mkeys])...)
+    for (key, value) ∈ pairs(decomps)
+        decomp = NamedTuple()
         for k ∈ keys(value[1])
             v = getindex.(value, k)
             if (k == :l || k == :u) && length(β_ci) > 1 v = collect.(eachrow(hcat(v...))) end
-            comp = (; comp..., k => v)
+            decomp = (; decomp..., k => v)
         end
-        decomp = (; decomp..., key => comp)
+        decomps = (; decomps..., key => decomp)
     end
-    decomp = (t=t_out, decomp..., β_ci=β_ci)
+    decomps = (t=t_out, decomps..., β_ci=β_ci)
 
-    return (decomp=decomp, θ=θs)
+    return (decomp=decomps, θ=θs)
 end
 
 function decompose(
@@ -100,6 +107,8 @@ function decompose(
     )
     # 1. Preprocess data
     @assert length(y) == length(t) == length(keep)
+    perm = sortperm(t)
+    y, t = y[perm], t[perm]
     data = (t=t, y=y)    # original time series
     y = logscale ? log1p.(y[keep]) : y[keep]    # log-transform
     t = t[keep]
@@ -131,6 +140,8 @@ function decompose(
                 )
                 x̃ = out.decomp.x̃.μ
                 θ = out.θ[end]
+                out = nothing
+                GC.gc()
             end
         end
         out = run_dynamic_decomp(y, t, bw,
