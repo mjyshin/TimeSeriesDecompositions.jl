@@ -2,33 +2,30 @@ module GPEstimators
 
 using AbstractGPs
 using Distributions
-using FiniteDifferences
+using ForwardDiff
 using KernelFunctions
 using Optim
 using ParameterHandling
-using ProgressMeter
+using LinearAlgebra: diag
 using Statistics
 using Stheno
 using Zygote
 
 import AbstractGPs: mean, cov, var
 using AbstractGPs: AbstractGP, PosteriorGP
+using KernelFunctions: kernelmatrix
+using ParameterHandling: positive, fixed
 using Stheno: DerivedGP
 
-include("defaults.jl")
-
-include("models.jl")
-
+include("types.jl")
+include("utils.jl")
+include("params.jl")
+include("kernels.jl")
 include("derivatives.jl")
+include("fit.jl")
+include("predict.jl")
 
-include("optimize.jl")
-
-include("helpers.jl")
-export comp_decomp
-
-include("decompose.jl")
-export decompose
-
-include("misc.jl")
+export Decomposition, ComponentEstimate
+export decompose, predict
 
 end # module GPEstimators

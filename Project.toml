@@ -1,13 +1,14 @@
 name = "GPEstimators"
 uuid = "29adc1aa-f14c-4657-8706-c5e2d354a969"
-authors = ["Matthew Shin <matthew.shin@pasteur.fr>"]
-version = "0.1.0"
+version = "0.2.0"
+authors = ["Matthew J. Y. Shin <matthew.shin@pasteur.fr>"]
 
 [deps]
 AbstractGPs = "99985d1d-32ba-4be9-9821-2ec096f28918"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
-FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 KernelFunctions = "ec8451be-7e33-11e9-00cf-bbf324bd1392"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 ParameterHandling = "2412ca09-6db7-441c-8e3a-88d5709968c5"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
@@ -16,4 +17,21 @@ Stheno = "8188c328-b5d6-583d-959b-9690869a5511"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [compat]
-ProgressMeter = "1.10.2"
+AbstractGPs = "0.5"
+Distributions = "0.25"
+ForwardDiff = "1"
+KernelFunctions = "0.10"
+LinearAlgebra = "1"
+Optim = "1, 2"
+ParameterHandling = "0.5"
+ProgressMeter = "1.9"
+Stheno = "0.8"
+Zygote = "0.6, 0.7"
+julia = "1.10"
+
+[extras]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Random", "Test"]
