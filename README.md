@@ -10,13 +10,13 @@ Once you have installed [Julia](https://julialang.org/) (I personally recommend 
 1. Pressing `]` to get to the Pkg REPL (and, optionally, activating your project-specific Julia environment)
 2. Using the `dev` command (instead of `add` for registered packages)
 ```
-(@v1.9) pkg> dev /path/to/RealTimeEstimators.jl
+(@v1.9) pkg> dev /path/to/RealTimeEstimators
 ```
 
 You can alternatively run the following short script directly from the Julia REPL:
 ```julia
 using Pkg
-Pkg.develop("/path/to/GPEstimators.jl")
+Pkg.develop("/path/to/GPEstimators")
 ```
 
 In both methods, *remember to replace the* `/path/to/` *with the actual path to this repository on your machine*! Also, you only have to do the above steps once (per project environment), after which you can use `using GPEstimators` to load it, as with any other Julia package.
