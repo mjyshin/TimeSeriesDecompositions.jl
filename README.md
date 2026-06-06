@@ -1,4 +1,4 @@
-# GPEstimators.jl
+# GPEstimators
 
 This Julia package runs a seasonal-trend decomposition (estimation and forecasting) of a univariate time series using Gaussian processes (GPs).
 
