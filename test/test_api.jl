@@ -28,11 +28,22 @@ end
     @test isnothing(d.seasonal)
     @test d.trend isa Component
     @test d.noise isa Component
+    @test d.θ.σ_seasonal == 0.0
+    @test d.θ.l_seasonal == Inf
+    @test d.θ.bandwidth  == Inf
 end
 
 @testset "no seasonal component (explicit Inf)" begin
     d = fit(Decomposition, _y, _t; period=Inf)
     @test isnothing(d.seasonal)
+    @test d.θ.σ_seasonal == 0.0
+    @test d.θ.l_seasonal == Inf
+end
+
+@testset "bandwidth ignored when no seasonal" begin
+    d = fit(Decomposition, _y, _t; bandwidth=30.0)
+    @test isnothing(d.seasonal)
+    @test d.θ.bandwidth == Inf
 end
 
 @testset "rate component (approx, NaN std)" begin
@@ -79,22 +90,48 @@ end
     @test length(d.trend.mean) == length(t_out)
 end
 
-@testset "params NamedTuple has required keys" begin
+@testset "θ NamedTuple has required keys" begin
     d = fit(Decomposition, _y, _t; period=12.0)
-    @test haskey(d.params, :σ_trend)
-    @test haskey(d.params, :l_trend)
-    @test haskey(d.params, :σ_seasonal)
-    @test haskey(d.params, :l_seasonal)
-    @test haskey(d.params, :period)
-    @test haskey(d.params, :bandwidth)
-    @test haskey(d.params, :σ_noise)
-    @test d.params.period ≈ 12.0
+    @test haskey(d.θ, :σ_trend)
+    @test haskey(d.θ, :l_trend)
+    @test haskey(d.θ, :σ_seasonal)
+    @test haskey(d.θ, :l_seasonal)
+    @test haskey(d.θ, :period)
+    @test haskey(d.θ, :bandwidth)
+    @test haskey(d.θ, :σ_noise)
+    @test d.θ.period ≈ 12.0
 end
 
 @testset "quasi-periodic bandwidth" begin
     d = fit(Decomposition, _y, _t; period=12.0, bandwidth=30.0)
-    @test isfinite(d.params.bandwidth)
-    @test d.params.bandwidth ≈ 30.0
+    @test isfinite(d.θ.bandwidth)
+    @test d.θ.bandwidth ≈ 30.0
+end
+
+
+
+@testset "σ_seasonal=0 disables seasonal" begin
+    d = fit(Decomposition, _y, _t; period=12.0, θ_init=(σ_seasonal=0.0,))
+    @test isnothing(d.seasonal)
+    @test d.θ.period     == Inf
+    @test d.θ.σ_seasonal == 0.0
+    @test d.θ.l_seasonal == Inf
+    @test d.θ.bandwidth  == Inf
+end
+
+@testset "σ_noise=0 disables noise" begin
+    d = fit(Decomposition, _y, _t; period=12.0, θ_init=(σ_noise=0.0,))
+    @test isnothing(d.noise)
+    @test d.θ.σ_noise == 0.0
+    @test !isnothing(d.seasonal)
+end
+
+@testset "custom kernels" begin
+    d = fit(Decomposition, _y, _t; period=12.0,
+        kernel=(trend=Matern52Kernel(), seasonal=Matern32Kernel()))
+    @test d isa Decomposition
+    @test d.trend isa Component
+    @test !isnothing(d.seasonal)
 end
 
 @testset "show method does not error" begin

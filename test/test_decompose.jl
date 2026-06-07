@@ -37,7 +37,7 @@ end
     y = sin.(2π .* t ./ 6) .+ 0.1 .* randn(30)
 
     d = fit(Decomposition, y, t; period=6.0, θ_fixed=[:σ_noise])
-    @test d.params.period ≈ 6.0
+    @test d.θ.period ≈ 6.0
 end
 
 @testset "decomposition sums to observed (approx)" begin

@@ -85,7 +85,8 @@ function _build_decomposition(
     trend    = _component_estimate(post, :x̄, t_out, sig, ȳ, s_y, true)
     seasonal = has_seasonal ?
         _component_estimate(post, :x̃, t_out, sig, 0.0, s_y, false) : nothing
-    noise    = _component_estimate(post, :ϵ,  t_out, sig, 0.0, s_y, false)
+    has_noise = params.σ_noise > 0
+    noise    = has_noise ? _component_estimate(post, :ϵ, t_out, sig, 0.0, s_y, false) : nothing
     _rate_estimate = approx_rate ? _approx_rate : _full_rate
     rate     = _rate_estimate(post, t_out, sig, s_y)
 
@@ -105,7 +106,7 @@ function predict(
 )
     fi = d._fit_info
     return _build_decomposition(
-        d._posterior, Float64.(t_new), d.params,
+        d._posterior, Float64.(t_new), d.θ,
         fi.ȳ, fi.s_y;
         sig=Float64.(sig), approx_rate=fi.approx_rate,
     )

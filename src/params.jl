@@ -9,8 +9,8 @@ function _init_params(θ::NamedTuple, fix::AbstractVector{Symbol})
     (
         σ_trend    = _param_wrap(θ.σ_trend,    :σ_trend    ∈ fix),
         l_trend    = _param_wrap(θ.l_trend,    :l_trend    ∈ fix),
-        σ_seasonal = _param_wrap(θ.σ_seasonal, :σ_seasonal ∈ fix || !has_seasonal),
-        l_seasonal = _param_wrap(θ.l_seasonal, :l_seasonal ∈ fix || !has_seasonal),
+        σ_seasonal = _param_wrap(has_seasonal ? θ.σ_seasonal : 0.0, :σ_seasonal ∈ fix || !has_seasonal),
+        l_seasonal = _param_wrap(has_seasonal ? θ.l_seasonal : Inf,  :l_seasonal ∈ fix || !has_seasonal),
         period     = ParameterHandling.fixed(Float64(θ.period)),    # always fixed
         bandwidth  = ParameterHandling.fixed(Float64(θ.bandwidth)), # always fixed
         σ_noise    = _param_wrap(θ.σ_noise,    :σ_noise    ∈ fix),
@@ -36,13 +36,14 @@ function _merge_params(θ_init::Union{Nothing, NamedTuple}, s_y::Real=1.0)
 end
 
 function _destandardize_params(θ::NamedTuple, s_y::Real)
+    has_seasonal = isfinite(θ.period)
     (
         σ_trend    = θ.σ_trend    * s_y,
         l_trend    = θ.l_trend,
-        σ_seasonal = θ.σ_seasonal * s_y,
-        l_seasonal = θ.l_seasonal,
+        σ_seasonal = has_seasonal ? θ.σ_seasonal * s_y : 0.0,
+        l_seasonal = has_seasonal ? θ.l_seasonal : Inf,
         period     = θ.period,
-        bandwidth  = θ.bandwidth,
-        σ_noise    = θ.σ_noise    * s_y,
+        bandwidth  = has_seasonal ? θ.bandwidth : Inf,
+        σ_noise    = θ.σ_noise > 0 ? θ.σ_noise * s_y : 0.0,
     )
 end

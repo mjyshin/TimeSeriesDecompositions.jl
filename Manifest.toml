@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "5e2201c3e5879f2a78324fea8a6b32f67230fa04"
+project_hash = "e76f971eb51722af484d9507219b6982574c42d2"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "bbc22a9a08a0ef6460041086d8a7b27940ed4ffd"
@@ -355,7 +355,7 @@ uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 version = "1.11.0"
 
 [[deps.GPEstimators]]
-deps = ["AbstractGPs", "Distributions", "ForwardDiff", "KernelFunctions", "LinearAlgebra", "Optim", "ParameterHandling", "ProgressMeter", "Statistics", "Stheno", "Zygote"]
+deps = ["AbstractGPs", "Distributions", "ForwardDiff", "KernelFunctions", "LinearAlgebra", "Optim", "ParameterHandling", "ProgressMeter", "Statistics", "StatsAPI", "Stheno", "Zygote"]
 path = "."
 uuid = "29adc1aa-f14c-4657-8706-c5e2d354a969"
 version = "0.2.0"

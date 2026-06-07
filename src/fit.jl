@@ -3,21 +3,22 @@ const _default_optimizer = LBFGS(;
     linesearch=Optim.LineSearches.BackTracking(),
 )
 
-function _nll(θ::NamedTuple, t_obs, y_obs::AbstractVector{<:Real})
-    gp = _build_gp(θ)
+function _nll(θ::NamedTuple, t_obs, y_obs::AbstractVector{<:Real}, kernels::NamedTuple)
+    gp = _build_gp(θ, kernels)
     return -logpdf(gp(t_obs, 1e-12), y_obs)
 end
 
 function _optimize_params(
     θ₀::NamedTuple, fix::AbstractVector{Symbol},
     t_obs, y_obs::AbstractVector{<:Real};
+    kernels::NamedTuple=_default_kernels,
     optimizer=_default_optimizer, max_iter::Int=1_000,
 )
     wrapped = _init_params(θ₀, fix)
     θ₀_flat, unflatten = ParameterHandling.value_flatten(wrapped)
     isempty(θ₀_flat) && return unflatten(θ₀_flat)
 
-    loss = x -> _nll(unflatten(x), t_obs, y_obs)
+    loss = x -> _nll(unflatten(x), t_obs, y_obs, kernels)
 
     function g!(G, x)
         G .= only(Zygote.gradient(loss, x))
@@ -34,6 +35,7 @@ function _fit_gp(
     bandwidth::Real=Inf,
     θ_init::Union{Nothing, NamedTuple}=nothing,
     θ_fixed::AbstractVector{Symbol}=Symbol[],
+    kernels::NamedTuple=_default_kernels,
     optimizer=_default_optimizer,
     max_iter::Int=1_000,
 )
@@ -41,18 +43,19 @@ function _fit_gp(
 
     # Defaults are all-ones in standardized space. User θ_init is in original units;
     # _merge_params divides σ fields by s_y before merging.
-    θ₀_5 = _merge_params(θ_init, s_y)
-    θ₀ = (θ₀_5..., period=Float64(period), bandwidth=Float64(bandwidth))
+    θ0_base = _merge_params(θ_init, s_y)
+    period_eff = θ0_base.σ_seasonal == 0.0 ? Inf : period
+    θ0 = (θ0_base..., period=Float64(period_eff), bandwidth=Float64(bandwidth))
 
     t_obs = GPPPInput(:y, collect(Float64, t))
-    θ_opt = _optimize_params(θ₀, θ_fixed, t_obs, Float64.(y_fit); optimizer, max_iter)
+    θ_opt = _optimize_params(θ0, θ_fixed, t_obs, Float64.(y_fit); kernels, optimizer, max_iter)
 
-    gp = _build_gp(θ_opt)
+    gp = _build_gp(θ_opt, kernels)
     posterior_gp = posterior(gp(t_obs, 1e-12), Float64.(y_fit))
 
     θ_final = _destandardize_params(θ_opt, s_y)
 
-    return (posterior=posterior_gp, params=θ_final, ȳ=ȳ, s_y=s_y)
+    return (posterior=posterior_gp, θ=θ_final, ȳ=ȳ, s_y=s_y)
 end
 
 """
@@ -70,6 +73,9 @@ and component estimates are in the original scale.
 - `bandwidth`: temporal envelope lengthscale for quasi-periodic seasonality.
   `Inf` (default) gives a stationary periodic kernel. A finite value lets the
   seasonal pattern evolve slowly over time. Never optimized.
+- `kernel`: `NamedTuple` specifying the kernel for each component. Supported keys:
+  `trend`, `seasonal`, `bandwidth`. Unspecified keys default to `SEKernel()`.
+  Example: `kernel=(trend=Matern52Kernel(), seasonal=Matern32Kernel())`.
 - `approx_rate`: use fast finite-difference rate with `std=NaN` (default `false`);
   set `true` to skip the posterior covariance computation for speed
 - `θ_init`: `NamedTuple` of initial values for the optimized hyperparameters
@@ -87,6 +93,7 @@ function fit(
     t::AbstractVector{<:Real}=eachindex(y);
     period::Real=Inf,
     bandwidth::Real=Inf,
+    kernel::Union{Nothing, NamedTuple}=nothing,
     approx_rate::Bool=false,
     θ_init::Union{Nothing, NamedTuple}=nothing,
     θ_fixed::AbstractVector{<:Union{Symbol,String}}=Symbol[],
@@ -100,21 +107,23 @@ function fit(
     isfinite(period)    && period    <= 0 && throw(DomainError(period,    "period must be positive"))
     isfinite(bandwidth) && bandwidth <= 0 && throw(DomainError(bandwidth, "bandwidth must be positive"))
 
-    perm = sortperm(t)
-    y_s  = Float64.(y[perm])
-    t_s  = Float64.(t[perm])
+    perm    = sortperm(t)
+    y_s     = Float64.(y[perm])
+    t_s     = Float64.(t[perm])
+    kernels = _merge_kernels(kernel)
 
     result = _fit_gp(y_s, t_s;
         period=Float64(period),
         bandwidth=Float64(bandwidth),
         θ_init,
         θ_fixed=Symbol.(θ_fixed),
+        kernels,
         optimizer,
         max_iter,
     )
 
     return _build_decomposition(
-        result.posterior, Float64.(t_out), result.params,
+        result.posterior, Float64.(t_out), result.θ,
         result.ȳ, result.s_y;
         sig=Float64.(sig), approx_rate,
     )

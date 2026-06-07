@@ -3,14 +3,16 @@ module GPDecompositions
 using AbstractGPs
 using Distributions
 using ForwardDiff
-using KernelFunctions
 using Optim
 using ParameterHandling
 using LinearAlgebra: diag
+using Reexport
 using Statistics
 using StatsAPI
 using Stheno
 using Zygote
+
+@reexport using KernelFunctions
 
 import AbstractGPs: mean, cov, var
 import StatsAPI: fit, predict

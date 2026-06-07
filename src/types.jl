@@ -10,9 +10,9 @@ struct Decomposition
     t::Vector{Float64}
     trend::Component
     seasonal::Union{Component, Nothing}
-    noise::Component
+    noise::Union{Component, Nothing}
     rate::Component
-    params::NamedTuple
+    θ::NamedTuple
     _posterior::Any
     _fit_info::NamedTuple  # (ȳ, s_y, approx_rate)
 end
@@ -22,8 +22,9 @@ function Base.show(io::IO, d::Decomposition)
     t1, tN = extrema(d.t)
     sig_str = join(round.(Int, 100 .* d.trend.sig), "%, ") * "%"
     has_seasonal = !isnothing(d.seasonal)
-    θ = d.params
-    comps = "trend" * (has_seasonal ? ", seasonal" : "") * ", noise, rate"
+    has_noise    = !isnothing(d.noise)
+    θ = d.θ
+    comps = "trend" * (has_seasonal ? ", seasonal" : "") * (has_noise ? ", noise" : "") * ", rate"
     println(io, "Decomposition{N=$N, t∈[$t1, $tN]}")
     println(io, "  components : $comps")
     println(io, "  CI levels  : $sig_str")
@@ -37,7 +38,9 @@ function Base.show(io::IO, d::Decomposition)
         println(io, "  σ_seasonal : $(round(θ.σ_seasonal; sigdigits=4))")
         println(io, "  l_seasonal : $(round(θ.l_seasonal; sigdigits=4))")
     end
-    print(io,   "  σ_noise    : $(round(θ.σ_noise; sigdigits=4))")
+    if has_noise
+        print(io, "  σ_noise    : $(round(θ.σ_noise; sigdigits=4))")
+    end
 end
 
 function Base.show(io::IO, ::MIME"text/plain", d::Decomposition)
