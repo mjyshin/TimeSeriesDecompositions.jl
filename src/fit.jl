@@ -4,7 +4,7 @@ const _default_optimizer = LBFGS(;
 )
 
 function _nll(θ::NamedTuple, t_obs, y_obs::AbstractVector{<:Real})
-    gp = _build_gp(θ; rate=false)
+    gp = _build_gp(θ)
     return -logpdf(gp(t_obs, 1e-12), y_obs)
 end
 
@@ -13,10 +13,10 @@ function _optimize_params(
     t_obs, y_obs::AbstractVector{<:Real};
     optimizer=_default_optimizer, max_iter::Int=1_000,
 )
-    all(k ∈ fix for k ∈ PARAM_KEYS) && return θ₀
-
     wrapped = _init_params(θ₀, fix)
     θ₀_flat, unflatten = ParameterHandling.value_flatten(wrapped)
+    isempty(θ₀_flat) && return unflatten(θ₀_flat)
+
     loss = x -> _nll(unflatten(x), t_obs, y_obs)
 
     function g!(G, x)
@@ -30,41 +30,92 @@ end
 
 function _fit_gp(
     y::AbstractVector{<:Real}, t::AbstractVector{<:Real};
-    standardize_data::Bool=true,
-    init_params::Union{Nothing, NamedTuple}=nothing,
-    fix_params::AbstractVector{Symbol}=Symbol[],
-    rate::Bool=false,
+    period::Real=Inf,
     bandwidth::Real=Inf,
+    θ_init::Union{Nothing, NamedTuple}=nothing,
+    θ_fixed::AbstractVector{Symbol}=Symbol[],
     optimizer=_default_optimizer,
     max_iter::Int=1_000,
 )
-    ȳ = 0.0
-    s = 1.0
-    y_fit = if standardize_data
-        y_s, ȳ, s = standardize(y)
-        y_s
-    else
-        Float64.(y)
-    end
+    y_fit, ȳ, s_y = standardize(y)
 
-    θ₀ = _merge_params(init_params)
-    # Always fix bandwidth; it enters as a kernel hyperparameter, not optimized
-    bw_fix = isfinite(bandwidth) ? Symbol[] : [:bandwidth]
-    θ₀ = (θ₀..., bandwidth=bandwidth)
-    fix = unique([fix_params; bw_fix; :bandwidth])
-
-    # Scale amplitude guesses by data std
-    θ₀ = _standardize_params(θ₀, s)
+    # Defaults are all-ones in standardized space. User θ_init is in original units;
+    # _merge_params divides σ fields by s_y before merging.
+    θ₀_5 = _merge_params(θ_init, s_y)
+    θ₀ = (θ₀_5..., period=Float64(period), bandwidth=Float64(bandwidth))
 
     t_obs = GPPPInput(:y, collect(Float64, t))
-    θ_opt = _optimize_params(θ₀, fix, t_obs, Float64.(y_fit); optimizer, max_iter)
+    θ_opt = _optimize_params(θ₀, θ_fixed, t_obs, Float64.(y_fit); optimizer, max_iter)
 
-    # Build posterior on the standardized scale
-    gp = _build_gp(θ_opt; rate)
+    gp = _build_gp(θ_opt)
     posterior_gp = posterior(gp(t_obs, 1e-12), Float64.(y_fit))
 
-    # Return params in original scale
-    θ_final = _destandardize_params(θ_opt, s)
+    θ_final = _destandardize_params(θ_opt, s_y)
 
-    return (posterior=posterior_gp, params=θ_final, ȳ=ȳ, s=s)
+    return (posterior=posterior_gp, params=θ_final, ȳ=ȳ, s_y=s_y)
+end
+
+"""
+    fit(Decomposition, y, t; kwargs...) -> Decomposition
+
+Decompose time series `y` observed at times `t` into trend, seasonal, and noise
+components using a Gaussian process model.
+
+`y` is internally z-score standardized before fitting; all returned parameters
+and component estimates are in the original scale.
+
+# Keyword arguments
+- `period`: seasonal period in the same units as `t`. `Inf` (default) disables
+  the seasonal component.
+- `bandwidth`: temporal envelope lengthscale for quasi-periodic seasonality.
+  `Inf` (default) gives a stationary periodic kernel. A finite value lets the
+  seasonal pattern evolve slowly over time. Never optimized.
+- `approx_rate`: use fast finite-difference rate with `std=NaN` (default `false`);
+  set `true` to skip the posterior covariance computation for speed
+- `θ_init`: `NamedTuple` of initial values for the optimized hyperparameters
+  `(σ_trend, l_trend, σ_seasonal, l_seasonal, σ_noise)`. Boundary values
+  (`σ=0`, `l=Inf`) are automatically fixed.
+- `θ_fixed`: `Vector{Symbol}` of optimized hyperparameters to hold fixed
+- `sig`: credible interval levels, e.g. `[0.5, 0.9]` (default)
+- `t_out`: output time grid; defaults to `t`
+- `optimizer`: Optim optimizer (default L-BFGS with backtracking)
+- `max_iter`: maximum optimizer iterations (default 1000)
+"""
+function fit(
+    ::Type{Decomposition},
+    y::AbstractVector{<:Real},
+    t::AbstractVector{<:Real}=eachindex(y);
+    period::Real=Inf,
+    bandwidth::Real=Inf,
+    approx_rate::Bool=false,
+    θ_init::Union{Nothing, NamedTuple}=nothing,
+    θ_fixed::AbstractVector{<:Union{Symbol,String}}=Symbol[],
+    sig::AbstractVector{<:Real}=[0.5, 0.9],
+    t_out::AbstractVector{<:Real}=t,
+    optimizer=_default_optimizer,
+    max_iter::Int=1_000,
+)
+    length(y) == length(t) || throw(DimensionMismatch("y and t must have the same length"))
+    all(0 .< sig .< 1)     || throw(DomainError(sig, "sig levels must be in (0, 1)"))
+    isfinite(period)    && period    <= 0 && throw(DomainError(period,    "period must be positive"))
+    isfinite(bandwidth) && bandwidth <= 0 && throw(DomainError(bandwidth, "bandwidth must be positive"))
+
+    perm = sortperm(t)
+    y_s  = Float64.(y[perm])
+    t_s  = Float64.(t[perm])
+
+    result = _fit_gp(y_s, t_s;
+        period=Float64(period),
+        bandwidth=Float64(bandwidth),
+        θ_init,
+        θ_fixed=Symbol.(θ_fixed),
+        optimizer,
+        max_iter,
+    )
+
+    return _build_decomposition(
+        result.posterior, Float64.(t_out), result.params,
+        result.ȳ, result.s_y;
+        sig=Float64.(sig), approx_rate,
+    )
 end

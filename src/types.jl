@@ -1,4 +1,4 @@
-struct ComponentEstimate
+struct Component
     mean::Vector{Float64}
     std::Vector{Float64}
     lower::Vector{Vector{Float64}}
@@ -8,30 +8,35 @@ end
 
 struct Decomposition
     t::Vector{Float64}
-    trend::ComponentEstimate
-    seasonal::ComponentEstimate
-    noise::ComponentEstimate
-    rate::Union{ComponentEstimate, Nothing}
+    trend::Component
+    seasonal::Union{Component, Nothing}
+    noise::Component
+    rate::Component
     params::NamedTuple
     _posterior::Any
-    _fit_info::NamedTuple
+    _fit_info::NamedTuple  # (ȳ, s_y, approx_rate)
 end
 
 function Base.show(io::IO, d::Decomposition)
     N = length(d.t)
     t1, tN = extrema(d.t)
     sig_str = join(round.(Int, 100 .* d.trend.sig), "%, ") * "%"
-    has_rate = !isnothing(d.rate)
+    has_seasonal = !isnothing(d.seasonal)
     θ = d.params
+    comps = "trend" * (has_seasonal ? ", seasonal" : "") * ", noise, rate"
     println(io, "Decomposition{N=$N, t∈[$t1, $tN]}")
-    println(io, "  components : trend, seasonal, noise$(has_rate ? ", rate" : "")")
+    println(io, "  components : $comps")
     println(io, "  CI levels  : $sig_str")
-    println(io, "  period     : $(θ.period)")
-    println(io, "  bandwidth  : $(isfinite(θ.bandwidth) ? θ.bandwidth : "Inf (static)")")
+    if has_seasonal
+        println(io, "  period     : $(round(θ.period; sigdigits=4))")
+        println(io, "  bandwidth  : $(isfinite(θ.bandwidth) ? round(θ.bandwidth; sigdigits=4) : "Inf (static)")")
+    end
     println(io, "  σ_trend    : $(round(θ.σ_trend; sigdigits=4))")
     println(io, "  l_trend    : $(round(θ.l_trend; sigdigits=4))")
-    println(io, "  σ_seasonal : $(round(θ.σ_seasonal; sigdigits=4))")
-    println(io, "  l_seasonal : $(round(θ.l_seasonal; sigdigits=4))")
+    if has_seasonal
+        println(io, "  σ_seasonal : $(round(θ.σ_seasonal; sigdigits=4))")
+        println(io, "  l_seasonal : $(round(θ.l_seasonal; sigdigits=4))")
+    end
     print(io,   "  σ_noise    : $(round(θ.σ_noise; sigdigits=4))")
 end
 

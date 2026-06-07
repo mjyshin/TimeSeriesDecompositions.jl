@@ -1,4 +1,4 @@
-# GPEstimators
+# GPDecompositions
 
 This Julia package runs a seasonal-trend decomposition (estimation and forecasting) of a univariate time series using Gaussian processes (GPs).
 
@@ -16,10 +16,10 @@ Once you have installed [Julia](https://julialang.org/) (I personally recommend 
 You can alternatively run the following short script directly from the Julia REPL:
 ```julia
 using Pkg
-Pkg.develop("/path/to/GPEstimators")
+Pkg.develop("/path/to/GPDecompositions")
 ```
 
-In both methods, *remember to replace the* `/path/to/` *with the actual path to this repository on your machine*! Also, you only have to do the above steps once (per project environment), after which you can use `using GPEstimators` to load it, as with any other Julia package.
+In both methods, *remember to replace the* `/path/to/` *with the actual path to this repository on your machine*! Also, you only have to do the above steps once (per project environment), after which you can use `using GPDecompositions` to load it, as with any other Julia package.
 
 
 ## Background
