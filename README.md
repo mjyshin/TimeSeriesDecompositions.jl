@@ -87,7 +87,7 @@ decomp = fit(Decomposition, y, t; period=12, bandwidth=36)
 
 ### Outputs
 
-The results are contained in a `Decomposition` struct. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise`, `decomp.rate`, respectively.
+The results are contained in a `Decomposition` struct. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise` and `decomp.rate`, respectively.
 
 For example, the mean values for the GP corresponding to the trend, i.e., $\bar x_{1:N}$ can be accessed with
 
@@ -110,7 +110,7 @@ decomp = fit(Decomposition, y, t; sig=[0.99])
 
 ### Recomputing decompositions
 
-Instead of refitting a full decomposition, perhaps we wish to simply get the decomposition values (using the same training data) at different CIs or at different times $\{t_m'\}_{m=1}^M$. In this case, we can use the `predict(decomp, ...)` function, where `decomp` is the old decomposition results:
+Instead of refitting a full decomposition, perhaps we wish to simply get the decomposition values (using the same training data) at different CIs or at different times $\{t_m'\}_{m=1}^M$. In this case, we can use the `predict(decomp, ...)` function, where `decomp` is the previously-trained decomposition results:
 
 ```julia
 decomp′ = predict(decomp; sig=[0.68, 0.95])
