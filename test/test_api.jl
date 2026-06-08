@@ -134,6 +134,20 @@ end
     @test !isnothing(d.seasonal)
 end
 
+@testset "θ from fit can be passed as θ_init" begin
+    d1 = fit(Decomposition, _y, _t; period=12.0, bandwidth=30.0)
+    d2 = fit(Decomposition, _y, _t; θ_init=d1.θ)
+    @test d2.θ.period    ≈ 12.0
+    @test d2.θ.bandwidth ≈ 30.0
+    @test !isnothing(d2.seasonal)
+end
+
+@testset "explicit kwarg overrides θ_init period" begin
+    d1 = fit(Decomposition, _y, _t; period=12.0)
+    d2 = fit(Decomposition, _y, _t; period=Inf, θ_init=d1.θ)
+    @test isnothing(d2.seasonal)
+end
+
 @testset "show method does not error" begin
     d = fit(Decomposition, _y, _t; period=12.0)
     io = IOBuffer()

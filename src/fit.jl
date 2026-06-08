@@ -69,10 +69,12 @@ and component estimates are in the original scale.
 
 # Keyword arguments
 - `period`: seasonal period in the same units as `t`. `Inf` (default) disables
-  the seasonal component.
+  the seasonal component. If `θ_init` contains `:period`, that value is used
+  as the default (explicit `period` kwarg still overrides).
 - `bandwidth`: temporal envelope lengthscale for quasi-periodic seasonality.
   `Inf` (default) gives a stationary periodic kernel. A finite value lets the
-  seasonal pattern evolve slowly over time. Never optimized.
+  seasonal pattern evolve slowly over time. Never optimized. If `θ_init`
+  contains `:bandwidth`, that value is used as the default.
 - `kernel`: `NamedTuple` specifying the kernel for each component. Supported keys:
   `trend`, `seasonal`, `bandwidth`. Unspecified keys default to `SEKernel()`.
   Example: `kernel=(trend=Matern52Kernel(), seasonal=Matern32Kernel())`.
@@ -91,8 +93,8 @@ function fit(
     ::Type{Decomposition},
     y::AbstractVector{<:Real},
     t::AbstractVector{<:Real}=eachindex(y);
-    period::Real=Inf,
-    bandwidth::Real=Inf,
+    period::Union{Real,Nothing}=nothing,
+    bandwidth::Union{Real,Nothing}=nothing,
     kernel::Union{Nothing, NamedTuple}=nothing,
     approx_rate::Bool=false,
     θ_init::Union{Nothing, NamedTuple}=nothing,
@@ -102,10 +104,16 @@ function fit(
     optimizer=_default_optimizer,
     max_iter::Int=1_000,
 )
+    # Explicit kwargs take precedence; θ_init fields override the default (Inf).
+    period_eff    = period    !== nothing ? Float64(period)    :
+                    (θ_init !== nothing && haskey(θ_init, :period))    ? Float64(θ_init.period)    : Inf
+    bandwidth_eff = bandwidth !== nothing ? Float64(bandwidth) :
+                    (θ_init !== nothing && haskey(θ_init, :bandwidth)) ? Float64(θ_init.bandwidth) : Inf
+
     length(y) == length(t) || throw(DimensionMismatch("y and t must have the same length"))
     all(0 .< sig .< 1)     || throw(DomainError(sig, "sig levels must be in (0, 1)"))
-    isfinite(period)    && period    <= 0 && throw(DomainError(period,    "period must be positive"))
-    isfinite(bandwidth) && bandwidth <= 0 && throw(DomainError(bandwidth, "bandwidth must be positive"))
+    isfinite(period_eff)    && period_eff    <= 0 && throw(DomainError(period_eff,    "period must be positive"))
+    isfinite(bandwidth_eff) && bandwidth_eff <= 0 && throw(DomainError(bandwidth_eff, "bandwidth must be positive"))
 
     perm    = sortperm(t)
     y_s     = Float64.(y[perm])
@@ -113,8 +121,8 @@ function fit(
     kernels = _merge_kernels(kernel)
 
     result = _fit_gp(y_s, t_s;
-        period=Float64(period),
-        bandwidth=Float64(bandwidth),
+        period=period_eff,
+        bandwidth=bandwidth_eff,
         θ_init,
         θ_fixed=Symbol.(θ_fixed),
         kernels,
