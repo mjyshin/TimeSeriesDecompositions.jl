@@ -65,8 +65,22 @@ end
 
 @testset "sig levels" begin
     d = fit(Decomposition, _y, _t; period=12.0, sig=[0.68, 0.95])
+    @test d.sig == [0.68, 0.95]
     @test d.trend.sig == [0.68, 0.95]
     @test length(d.trend.lower) == 2
+end
+
+@testset "sig deduplication and sorting" begin
+    d = fit(Decomposition, _y, _t; period=12.0, sig=[0.95, 0.5, 0.5])
+    @test d.sig == [0.5, 0.95]
+    @test length(d.trend.lower) == 2
+end
+
+@testset "predict with no t_new uses decomp.t" begin
+    d = fit(Decomposition, _y, _t; period=12.0)
+    d2 = predict(d)
+    @test d2.t == d.t
+    @test length(d2.trend.mean) == length(_t)
 end
 
 @testset "predict at new times" begin
@@ -81,6 +95,7 @@ end
 @testset "predict preserves sig" begin
     d = fit(Decomposition, _y, _t; period=12.0, sig=[0.9])
     d2 = predict(d, collect(51.0:55.0))
+    @test d2.sig == [0.9]
     @test d2.trend.sig == [0.9]
 end
 

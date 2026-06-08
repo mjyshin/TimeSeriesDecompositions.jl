@@ -80,6 +80,7 @@ function _build_decomposition(
     sig::AbstractVector{Float64},
     approx_rate::Bool,
 )
+    sig = sort(unique(sig))
     has_seasonal = isfinite(params.period)
 
     trend    = _component_estimate(post, :x̄, t_out, sig, ȳ, s_y, true)
@@ -91,18 +92,18 @@ function _build_decomposition(
     rate     = _rate_estimate(post, t_out, sig, s_y)
 
     fi = (ȳ=ȳ, s_y=s_y, approx_rate=approx_rate)
-    return Decomposition(t_out, trend, seasonal, noise, rate, params, post, fi)
+    return Decomposition(t_out, trend, seasonal, noise, rate, sig, params, post, fi)
 end
 
 """
-    predict(d::Decomposition, t_new; sig=d.trend.sig) -> Decomposition
+    predict(d::Decomposition, t_new=d.t; sig=d.sig) -> Decomposition
 
 Re-evaluate a fitted decomposition at new time points without re-fitting.
 """
 function predict(
     d::Decomposition,
-    t_new::AbstractVector{<:Real};
-    sig::AbstractVector{<:Real}=d.trend.sig,
+    t_new::AbstractVector{<:Real}=d.t;
+    sig::AbstractVector{<:Real}=d.sig,
 )
     fi = d._fit_info
     return _build_decomposition(

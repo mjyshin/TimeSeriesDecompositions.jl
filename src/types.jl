@@ -12,6 +12,7 @@ struct Decomposition
     seasonal::Union{Component, Nothing}
     noise::Union{Component, Nothing}
     rate::Component
+    sig::Vector{Float64}
     θ::NamedTuple
     _posterior::Any
     _fit_info::NamedTuple  # (ȳ, s_y, approx_rate)
@@ -20,7 +21,7 @@ end
 function Base.show(io::IO, d::Decomposition)
     N = length(d.t)
     t1, tN = extrema(d.t)
-    sig_str = join(round.(Int, 100 .* d.trend.sig), "%, ") * "%"
+    sig_str = join(round.(Int, 100 .* d.sig), "%, ") * "%"
     has_seasonal = !isnothing(d.seasonal)
     has_noise    = !isnothing(d.noise)
     θ = d.θ
