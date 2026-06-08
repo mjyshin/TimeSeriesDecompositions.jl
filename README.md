@@ -26,10 +26,10 @@ In both methods, *remember to replace the* `/path/to/` *with the actual path to 
 
 ## Background
 
-The goal of this package is to decompose a given time series $\{(t_n, y_n)\}_{n=1}^N$ (where $t_n, y_n \in \mathbb{R}$) into three components:
+The goal of this package is to decompose a given time series $\{(t_n, y_n)\}_{n=1}^N$ (where $t_n, y_n \in \mathbb{R}$) into three *additive* components:
 
 - Low-frequency nonstationary **trend** component (denoted $\bar x_n$)
-- Medium-frequency stationary **seasonal** component (denoted $\tilde x_n$)
+- Medium-frequency (non)stationary **seasonal** component (denoted $\tilde x_n$)
 - High-frequency stationary **noise** component (denoted $\epsilon_n$)
 
 We accomplish this by estimating a continuous model $f(t)$ for each component such that $\bar x(t_n) = \bar x_n$, $\tilde x(t_n) = \tilde x_n$ and $\epsilon(t_n) = \epsilon_n$ for each $n=1,\dots,N$.
@@ -42,11 +42,13 @@ Finally, we also derive a model $r(t)$ for the **rate** of change of the trend m
 
 $$\frac{\text d\bar x(t)}{\text dt} = r(t).$$
 
-NB: We have used a slight abuse of notation for simplicity of explanation; the model $f(t)$ that is actually estimated is a GP, a _distribution_ of paths $\rho[f](t)$, with posterior mean $\mu_f(t)$ and standard deviation $\sigma_f(t)$ functions.
+**NB:** We have used a slight abuse of notation for simplicity of explanation; the model $f(t)$ that is actually estimated is a GP, a *distribution* of paths $\rho[f](t)$, with posterior mean $\mu_f(t)$ and standard deviation $\sigma_f(t)$ functions.
+
+One major advantage of using GPs for time series analysis is that the *data need not be uniformly sampled*. So you can feel free to remove obvious outliers or use noninteger times (or even have redundant data, i.e., multiple $y(t)$ values for a single "time" point $t$)! ☺
 
 ### Logarithmic data
 
-The above description is for linear (additive) time series. For data in the logarithmic (multiplicative) scale where $y_n \geq 0$, the decomposition of the data model is the product
+The above description is for linear time series. For data in the logarithmic scale where $y(t) > 0$, the decomposition of the data model is the *product*
 
 $$y(t) = \bar x(t) \cdot \tilde x(t) \cdot \epsilon(t),$$
 
@@ -54,20 +56,18 @@ and the rate $r(t)$ is the exponential growth rate defined by the ODE
 
 $$\frac{\text d\bar x(t)}{\text dt} = r(t)\bar x(t).$$
 
-We can 
-
-One big advantages of using GPs for time series analysis is that the _data need not be uniformly sampled_!!! ☺ So you can feel free to remove obvious outliers or use noninteger times (or even have redundant data, i.e., multiple data for a single "time" point).
+We can run multiplicative decomposition by simply log-transforming the raw data $\log y(t)$ then exponentiating the resulting component $\exp f(t)$ (with the exception of the rate). If you have zeros in your log-scale data, you may consider adding a small fraction or use `log1p` and `expm1`.
 
 
 ## Implementation
 
-The simplest use-case for this package is the linearly-scaled, uniformly-sampled time series $\{(n,y_n)\}$ with no seasonal patterns. For this, we simply call the main function `fit(Decomposition, ...)` following the `MultivariateStats` API:
+The simplest use-case for this package is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal patterns. For this, we simply call the main function `fit(Decomposition, ...)` following the `MultivariateStats` API:
 
 ```julia
 decomp = fit(Decomposition, y)
 ```
 
-By default, times $t_n = n$ are used. In order to specify (nonuniform) times, we use the optional second argument
+By default, times $t_n = n$ are used. In order to specify (e.g., nonuniform) times, we use the optional second argument
 
 ```julia
 decomp = fit(Decomposition, y, t)
@@ -87,9 +87,9 @@ decomp = fit(Decomposition, y, t; period=12, bandwidth=36)
 
 ### Outputs
 
-The results are contained in a `Decomposition` struct. The primary results of interest, i.e., the estimated series $\{\bar x_n\}$, $\{\tilde x_n\}$, $\{\epsilon_n\}$ and $\{r_n\}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise`, `decomp.rate`, respectively.
+The results are contained in a `Decomposition` struct. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise`, `decomp.rate`, respectively.
 
-For example, the mean values for the GP corresponding to the trend, i.e., $\{\bar x_n\}$ can be accessed with
+For example, the mean values for the GP corresponding to the trend, i.e., $\bar x_{1:N}$ can be accessed with
 
 ```julia
 x̄ = decomp.trend.mean
@@ -102,7 +102,7 @@ The standard deviation as well as the lower and upper credible interval (CI) val
 l_x̄, u_x̄ = decomp.trend.lower, decomp.trend.upper
 ```
 
-By default, we compute the 50% and 90% CIs, but this could be changed during the fitting, for example, to a 99% CI with the `sig` keyword argument:
+By default, we output the 50% and 90% CIs, but this could be changed during the fitting, for example to a 99% CI, with the `sig` keyword argument:
 
 ```julia
 decomp = fit(Decomposition, y, t; sig=[0.99])
@@ -110,14 +110,14 @@ decomp = fit(Decomposition, y, t; sig=[0.99])
 
 ### Recomputing decompositions
 
-Instead of refitting a full decomposition (to fit to new data), perhaps we wish to simply recompute the decomposition at different CIs or at different times $\{t_m'\}_{m=1}^M$. In this case, we can use the `predict(decomp, ...)` function, where `decomp` is the old decomposition results:
+Instead of refitting a full decomposition, perhaps we wish to simply get the decomposition values (using the same training data) at different CIs or at different times $\{t_m'\}_{m=1}^M$. In this case, we can use the `predict(decomp, ...)` function, where `decomp` is the old decomposition results:
 
 ```julia
 decomp′ = predict(decomp; sig=[0.68, 0.95])
 decomp′ = predict(decomp, t′)
 ```
 
-NB: Any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where $t_m' > t_N$), but one must be careful in interpreting of the results of such extrapolations.
+**NB:** Any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where $t_m' > t_N$), but one must be careful in interpreting of the results of such extrapolations, as one does with methods like (S)ARIMA.
 
 
 ## References
