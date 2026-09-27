@@ -28,6 +28,12 @@ function Base.show(io::IO, d::_FilterDecomp)
     for (name, f) in pairs(d.θ.filters)
         print(io, "\n    ", rpad(string(name), 21), repr(f))
     end
+    isempty(d.θ.estimated) && return nothing
+    print(io, "\n  estimated  :")
+    for (name, value) in pairs(d.θ.estimated)
+        print(io, "\n    ", rpad(string(name), 21), value)
+    end
+    return nothing
 end
 
 Base.show(io::IO, ::MIME"text/plain", d::_FilterDecomp) = show(io, d)

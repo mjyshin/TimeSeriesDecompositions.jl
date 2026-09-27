@@ -2,8 +2,10 @@
     X11Decomp <: AbstractDecomp
 
 X-11-style seasonal-trend decomposition from classical filters: Henderson trend filters
-with asymmetric end weights and `S(n × m)` seasonal filters. The fitted filters are in
-`d.θ.filters`. Point estimates only (`std` is `NaN`). See `fit(X11Decomp, ...)`.
+with minimum-revision end weights and `S(n × m)` seasonal filters, for any integer
+period. The fitted filters are in `d.θ.filters` and the hyperparameters chosen from the
+data in `d.θ.estimated`. Point estimates only (`std` is `NaN`). See
+`fit(X11Decomp, ...)`.
 """
 struct X11Decomp <: AbstractDecomp
     t::Vector{Float64}
@@ -14,32 +16,51 @@ struct X11Decomp <: AbstractDecomp
     θ::NamedTuple
 end
 
+const _SeasonalFilterSpec = Union{Nothing,Tuple{Integer,Integer},Type{StableSeasonalFilter}}
+
 """
     fit(X11Decomp, y, t=eachindex(y); period, kwargs...) -> X11Decomp
 
-X-11-style decomposition of `y` observed at uniformly spaced times `t`, in two passes:
+X-11-style decomposition of `y` observed at uniformly spaced times `t`, with `p` samples
+per seasonal cycle, in two passes:
 
- 1. a centred moving average of one period gives an initial trend; an `S(n₁ × m₁)`
-    seasonal filter of the detrended series gives a preliminary seasonal; a Henderson
-    filter of the seasonally adjusted series gives a preliminary trend;
- 2. an `S(n₂ × m₂)` seasonal filter of the series detrended by the preliminary trend gives
-    the seasonal; a Henderson filter of the seasonally adjusted series gives the trend.
+ 1. a centred `2 × p` (even `p`) or `p`-term (odd `p`) moving average gives an initial
+    trend, undefined in the first and last `p/2` points; a seasonal filter of the
+    detrended series gives a preliminary seasonal; a Henderson filter of the seasonally
+    adjusted series gives a preliminary trend;
+ 2. a seasonal filter of the series detrended by the preliminary trend gives the
+    seasonal; a Henderson filter of the seasonally adjusted series gives the trend.
 
-The noise is the remainder, `y - trend - seasonal`.
+In each pass the seasonal filter is applied to every cycle-subseries, extended to the
+points where it is undefined by repeating the nearest estimate of the same phase (which
+holds a changing seasonal amplitude fixed over the first and last `p/2` points), and
+centred by subtracting its `2 × p` moving average. The noise is `y - trend - seasonal`.
+With the default end weights, a linear trend plus a fixed seasonal pattern is reproduced
+exactly, including at the ends.
 
 # Keyword arguments
-- `period`: seasonal period in units of `t` (required); `period / Δt` must be an integer.
-- `trend_window`: odd length of the final Henderson filter in samples (default `13`).
-- `endpoints`: end weights of the final Henderson filter, an [`AbstractEndpoints`](@ref)
-  or `nothing` for `NaN` ends. Defaults to X-11's Musgrave weights,
-  `musgrave(musgrave_ic_ratio(trend_window))`.
-- `preliminary_trend_window`, `preliminary_endpoints`: as above for the first pass
-  (defaults `trend_window` and its Musgrave weights).
-- `seasonal_filters`: `((n₁, m₁), (n₂, m₂))` (default `((3, 3), (3, 5))`, i.e. S3×3 then
-  S3×5).
+- `period`: seasonal period in units of `t` (required); `p = period / Δt` must be an
+  integer, and the series must span at least three cycles.
+- `trend_window`: odd length of the Henderson filters in samples. `nothing` (default)
+  gives the smallest odd integer `≥ p + 1` (at least 5): a trend-cycle cutoff at a fixed
+  fraction of the seasonal cycle, giving the 5- and 13-term filters of X-11 for
+  quarterly and monthly data.
+- `endpoints`: end weights of the final Henderson filter (default `MinimumRevision()`:
+  QL with its ratio estimated from the seasonally adjusted series). Use
+  `musgrave(musgrave_ic_ratio(trend_window))` for the Musgrave weights of X-11.
+- `preliminary_endpoints`: end weights of the first-pass Henderson filter (default QL
+  with ratio `0`; `NoEndpoints()` is not allowed).
+- `preliminary_seasonal_filter`, `seasonal_filter`: `(n, m)` for an `S(n × m)` filter,
+  or `StableSeasonalFilter`. The defaults are `(3, 3)` and `nothing`, which chooses
+  among `S3×3`, `S3×5` and `S3×9` by X-11's global moving seasonality ratio (MSR; S3×3
+  below seven cycles). Its thresholds, in units of cycles, were calibrated on monthly
+  and quarterly data.
+  A filter needing more cycles than available (`n + m - 1`) is replaced by the longest
+  one that fits, and by a stable seasonal below five cycles.
 
-Unlike X-13ARIMA-SEATS, the filter lengths are not chosen from the data, the seasonal is
-not centred, and there is no extreme-value adjustment.
+Hyperparameters chosen from the data are reported in one `@info` message and stored in
+`d.θ.estimated`. Unlike X-13ARIMA-SEATS, there is no extreme-value adjustment, forecast
+extension or calendar adjustment.
 
 The rate is the derivative of the trend per unit of `t`.
 """
@@ -48,42 +69,74 @@ function fit(
     y::AbstractVector{<:Real},
     t::AbstractVector{<:Real}=eachindex(y);
     period::Real,
-    trend_window::Integer=13,
-    endpoints::Union{Nothing,AbstractEndpoints}=musgrave(musgrave_ic_ratio(trend_window)),
-    preliminary_trend_window::Integer=trend_window,
-    preliminary_endpoints::AbstractEndpoints=musgrave(
-        musgrave_ic_ratio(preliminary_trend_window)
-    ),
-    seasonal_filters::NTuple{2,NTuple{2,Integer}}=((3, 3), (3, 5)),
+    trend_window::Union{Nothing,Integer}=nothing,
+    endpoints::AbstractEndpoints=MinimumRevision(),
+    preliminary_endpoints::AbstractEndpoints=MinimumRevision(; ratio=0),
+    preliminary_seasonal_filter::_SeasonalFilterSpec=(3, 3),
+    seasonal_filter::_SeasonalFilterSpec=nothing,
 )
     y, t, Δt = _uniform_grid(y, t)
-    T = _samples_per_period(period, Δt)
-    length(y) ≥ 2T || throw(ArgumentError("need at least two periods of data"))
-    (n₁, m₁), (n₂, m₂) = seasonal_filters
+    p = _samples_per_period(period, Δt)
+    N = length(y)
+    cycles = N ÷ p
+    cycles ≥ 3 || throw(ArgumentError("need at least 3 seasonal cycles, got $cycles"))
+    preliminary_endpoints isa NoEndpoints &&
+        throw(ArgumentError("the preliminary trend needs end weights"))
+    estimated = (;)
+    window = something(trend_window, max(5, _nextodd(p + 1)))
+    isnothing(trend_window) && (estimated = (; trend_window=window))
 
-    initial_trend = fit(MovingAverage, y; window=T)
-    detrended = y - predict(initial_trend, y)
-    preliminary_seasonal = fit(SeasonalMovingAverage, detrended; period=T, n=n₁, m=m₁)
-    adjusted = y - predict(preliminary_seasonal, detrended)
-    preliminary_trend = fit(
-        LocalPolynomialFilter,
-        adjusted;
-        window=preliminary_trend_window,
-        endpoints=preliminary_endpoints,
+    # Pass 1
+    initial_trend = fit(MovingAverage, y; window=p)
+    inner, trend₀ = _symmetric_filter(initial_trend.weights, y)
+    preliminary_seasonal, preliminary_note = _seasonal_filter(
+        preliminary_seasonal_filter, p, length(inner) ÷ p
     )
-
-    detrended = y - predict(preliminary_trend, adjusted)
-    seasonal_filter = fit(SeasonalMovingAverage, detrended; period=T, n=n₂, m=m₂)
-    seasonal = predict(seasonal_filter, detrended)
+    if !isnothing(preliminary_note)
+        estimated = (;
+            estimated...,
+            preliminary_seasonal_filter=preliminary_seasonal,
+            preliminary_seasonal_filter_note=preliminary_note,
+        )
+    end
+    seasonal = _seasonal(preliminary_seasonal, y[inner] - trend₀, inner, N, p)
     adjusted = y - seasonal
-    trend_filter = fit(LocalPolynomialFilter, adjusted; window=trend_window, endpoints)
-    trend = predict(trend_filter, adjusted)
+    preliminary_trend = _fit(
+        LocalPolynomialFilter, adjusted; window, endpoints=preliminary_endpoints
+    )
+    preliminary_estimated = _prefix_keys(:preliminary_, preliminary_trend.estimated)
+    estimated = (; estimated..., preliminary_estimated...)
 
+    # Pass 2
+    detrended = y - predict(preliminary_trend, adjusted)
+    if isnothing(seasonal_filter) && cycles < _MSR_MIN_CYCLES
+        spec = (3, 3)
+        msr_note = "MSR needs $_MSR_MIN_CYCLES cycles, got $cycles; using S3×3"
+        estimated = (; estimated..., msr_note)
+    elseif isnothing(seasonal_filter)
+        spec, msr = _msr_filter(detrended, p)
+        estimated = (; estimated..., msr)
+    else
+        spec = seasonal_filter
+    end
+    final_seasonal, seasonal_note = _seasonal_filter(spec, p, cycles)
+    if isnothing(seasonal_filter) || !isnothing(seasonal_note)
+        estimated = (; estimated..., seasonal_filter=final_seasonal)
+        isnothing(seasonal_note) ||
+            (estimated = (; estimated..., seasonal_filter_note=seasonal_note))
+    end
+    seasonal = _seasonal(final_seasonal, detrended, 1:N, N, p)
+    adjusted = y - seasonal
+    trend_filter = _fit(LocalPolynomialFilter, adjusted; window, endpoints)
+    trend = predict(trend_filter, adjusted)
+    estimated = (; estimated..., trend_filter.estimated...)
+
+    _log_estimated(X11Decomp, estimated)
     filters = (;
         initial_trend,
         preliminary_seasonal,
         preliminary_trend,
-        seasonal=seasonal_filter,
+        seasonal=final_seasonal,
         trend=trend_filter,
     )
     return X11Decomp(
@@ -92,6 +145,87 @@ function fit(
         Component(seasonal),
         Component(adjusted - trend),
         Component(_trend_rate(trend, Δt)),
-        (; period=Float64(period), Δt, filters),
+        (; period=Float64(period), Δt, filters, estimated),
     )
+end
+
+function _prefix_keys(prefix::Symbol, nt::NamedTuple)
+    return NamedTuple(Symbol(prefix, k) => v for (k, v) in pairs(nt))
+end
+
+# Seasonal filter from its specification, replaced by the longest filter that fits when
+# there are fewer than n + m - 1 cycles; returns the filter and a note if it was replaced
+function _seasonal_filter(::Type{StableSeasonalFilter}, p, _)
+    return StableSeasonalFilter(p), nothing
+end
+
+function _seasonal_filter((n, m)::Tuple{Integer,Integer}, p, cycles)
+    n ≥ 1 && m ≥ 1 && isodd(n) && isodd(m) ||
+        throw(ArgumentError("S(n × m) needs odd, positive n and m, got ($n, $m)"))
+    n + m - 1 ≤ cycles && return SeasonalMovingAverage(p, n, m), nothing
+    for (n′, m′) in ((3, 5), (3, 3))
+        if n′ + m′ - 1 ≤ min(cycles, n + m - 2)
+            f = SeasonalMovingAverage(p, n′, m′)
+            return f, "S$(n)×$(m) needs $(n + m - 1) cycles, got $cycles"
+        end
+    end
+    f = StableSeasonalFilter(p)
+    return f, "S$(n)×$(m) needs $(n + m - 1) cycles, got $cycles"
+end
+
+# Seasonal component from the detrended values `si` on `inner`: filter each
+# cycle-subseries, repeat the nearest estimate of the same phase outside `inner`, and
+# centre with a 2 × p moving average (its ends extended as constants)
+function _seasonal(filter::AbstractSeasonalFilter, si, inner, N, p)
+    s = fill(NaN, N)
+    s[inner] = predict(filter, si)
+    for t in 1:(first(inner) - 1)
+        s[t] = s[t + cld(first(inner) - t, p) * p]
+    end
+    for t in (last(inner) + 1):N
+        s[t] = s[t - cld(t - last(inner), p) * p]
+    end
+    ma = fit(MovingAverage, s; window=p)
+    centre_idx, centre = _symmetric_filter(ma.weights, s)
+    offset = [centre[clamp(t - first(centre_idx) + 1, 1, length(centre))] for t in 1:N]
+    return s - offset
+end
+
+# Global moving seasonality ratio of X-11 (table D9A; Ladiray & Quenneville, 2001): in
+# each cycle-subseries, the seasonal S is a 7-term moving average of the detrended values
+# (extended at each end by three copies of the mean of the first or last three) and the
+# irregular is I = detrended - S; the ratio is Σⱼ Nⱼ Īⱼ / Σⱼ Nⱼ S̄ⱼ, where Īⱼ and S̄ⱼ are the
+# mean absolute cycle-to-cycle changes of I and S at phase j and Nⱼ its number of cycles
+function _moving_seasonality_ratio(detrended, p)
+    ΣI = ΣS = 0.0
+    for phase in 1:p
+        x = detrended[phase:p:end]
+        n = length(x)
+        extended = [fill(mean(x[1:3]), 3); x; fill(mean(x[(end - 2):end]), 3)]
+        seasonal = [mean(view(extended, k:(k + 6))) for k in 1:n]
+        irregular = x - seasonal
+        ΣI += n * mean(abs, diff(irregular))
+        ΣS += n * mean(abs, diff(seasonal))
+    end
+    ΣS > 0 && return ΣI / ΣS
+    return ΣI > 0 ? Inf : 0.0
+end
+
+const _MSR_MIN_CYCLES = 7
+
+# X-11's choice of seasonal filter from the MSR: S3×3 below 2.5, S3×5 in (3.5, 5.5),
+# S3×9 above 6.5. The closed grey zones [2.5, 3.5] and [5.5, 6.5] trigger a recomputation
+# without the last cycle, up to five times, after which S3×5 is used. Returns the (n, m)
+# filter and the last MSR computed.
+function _msr_filter(detrended, p)
+    msr = NaN
+    for attempt in 0:5
+        msr = _moving_seasonality_ratio(detrended, p)
+        msr < 2.5 && return (3, 3), msr
+        3.5 < msr < 5.5 && return (3, 5), msr
+        msr > 6.5 && return (3, 9), msr
+        attempt < 5 && length(detrended) - p ≥ _MSR_MIN_CYCLES * p || break
+        detrended = detrended[1:(end - p)]
+    end
+    return (3, 5), msr
 end

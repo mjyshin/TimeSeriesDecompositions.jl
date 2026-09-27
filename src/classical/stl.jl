@@ -2,7 +2,8 @@
     STLDecomp <: AbstractDecomp
 
 Seasonal-trend decomposition with a loess trend. The fitted filters are in
-`d.θ.filters`. Point estimates only (`std` is `NaN`). See `fit(STLDecomp, ...)`.
+`d.θ.filters` and the hyperparameters chosen from the data in `d.θ.estimated`. Point
+estimates only (`std` is `NaN`). See `fit(STLDecomp, ...)`.
 
 !!! warning "Placeholder"
     This is **not yet** the STL procedure of Cleveland et al. (1990): there is no
@@ -31,7 +32,8 @@ Loess-based seasonal-trend decomposition of `y` observed at uniformly spaced tim
   (STL uses local-linear). Defaults to Cleveland et al.'s rule
   `n_t ≥ 1.5 n_p / (1 - 1.5 / n_s)` with the smallest seasonal window `n_s = 7`.
 
-The rate is the derivative of the trend per unit of `t`.
+Hyperparameters chosen from the data are reported with an `@info` message and stored in
+`d.θ.estimated`. The rate is the derivative of the trend per unit of `t`.
 """
 function fit(
     ::Type{STLDecomp},
@@ -41,20 +43,22 @@ function fit(
     trend_window::Union{Nothing,Integer}=nothing,
 )
     y, t, Δt = _uniform_grid(y, t)
-    T = _samples_per_period(period, Δt)
-    trend_window = something(trend_window, _nextodd(1.5T / (1 - 1.5 / 7)))
-    _halfwidth(trend_window, "trend_window")
-    length(y) ≥ max(trend_window, 2T) ||
+    p = _samples_per_period(period, Δt)
+    window = something(trend_window, _nextodd(1.5p / (1 - 1.5 / 7)))
+    estimated = isnothing(trend_window) ? (; trend_window=window) : (;)
+    _halfwidth(window, "trend_window")
+    length(y) ≥ max(window, 2p) ||
         throw(ArgumentError("need at least max(trend_window, two periods) observations"))
 
-    initial_trend = fit(MovingAverage, y; window=T)
+    initial_trend = fit(MovingAverage, y; window=p)
     detrended = y - predict(initial_trend, y)
-    seasonal_filter = fit(StableSeasonalFilter, detrended; period=T)
+    seasonal_filter = fit(StableSeasonalFilter, detrended; period=p)
     seasonal = predict(seasonal_filter, detrended)
     adjusted = y - seasonal
-    trend_filter = fit(LoessFilter, adjusted; window=trend_window)
+    trend_filter = fit(LoessFilter, adjusted; window)
     trend = predict(trend_filter, adjusted)
 
+    _log_estimated(STLDecomp, estimated)
     filters = (; initial_trend, seasonal=seasonal_filter, trend=trend_filter)
     return STLDecomp(
         t,
@@ -62,6 +66,6 @@ function fit(
         Component(seasonal),
         Component(adjusted - trend),
         Component(_trend_rate(trend, Δt)),
-        (; period=Float64(period), Δt, filters),
+        (; period=Float64(period), Δt, filters, estimated),
     )
 end

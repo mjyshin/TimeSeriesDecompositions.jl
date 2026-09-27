@@ -18,8 +18,12 @@ function _samples_per_period(period::Real, Δt::Real)
     isfinite(period) && period > 0 ||
         throw(DomainError(period, "period must be positive and finite"))
     T = period / Δt
-    isapprox(T, round(T); rtol=1e-8) && round(Int, T) ≥ 2 ||
-        throw(ArgumentError("period / Δt = $T must be an integer ≥ 2"))
+    isapprox(T, round(T); rtol=1e-8) && round(Int, T) ≥ 2 || throw(
+        ArgumentError(
+            "period / Δt = $T must be an integer ≥ 2; filter-based decompositions " *
+            "do not support non-integer periods (use GPDecomp)",
+        ),
+    )
     return round(Int, T)
 end
 
@@ -41,7 +45,8 @@ function _grid_indices(
         i = round(Int, k) + 1
         isapprox(k, i - 1; atol=1e-8) && 1 ≤ i ≤ length(t) || throw(
             ArgumentError(
-                "t = $τ is not an in-sample time; filter-based decompositions cannot extrapolate or interpolate",
+                "t = $τ is not an in-sample time; filter-based decompositions cannot " *
+                "extrapolate or interpolate",
             ),
         )
         return i

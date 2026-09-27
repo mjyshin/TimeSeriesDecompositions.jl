@@ -1,5 +1,6 @@
 using GPDecompositions
 using LinearAlgebra: dot
+using Logging
 using Random
 using Test
 
@@ -28,30 +29,36 @@ end
 
 lpf(; kwargs...) = fit(LocalPolynomialFilter, _y; kwargs...)
 
-@testset "filter_kernel" begin
-    @test filter_kernel(:henderson, 6) ==
+@testset "kernel_weights" begin
+    @test kernel_weights(HendersonKernel(), 6) ==
         [(49 - j^2) * (64 - j^2) * (81 - j^2) for j in -6:6]
-    for k in (:henderson, :biweight, :tricube, :epanechnikov, :uniform)
-        κ = filter_kernel(k, 4)
+    for k in (
+        HendersonKernel(),
+        BiweightKernel(),
+        TricubeKernel(),
+        EpanechnikovKernel(),
+        UniformKernel(),
+    )
+        κ = kernel_weights(k, 4)
         @test κ == reverse(κ)
         @test all(>(0), κ)
+        @test lpf(; kernel=k, endpoints=NoEndpoints()).weights |> sum ≈ 1
     end
-    @test_throws ArgumentError filter_kernel(:gaussian, 4)
 end
 
 @testset "Henderson symmetric weights" begin
     # Published 13-term weights, j = 0:6
-    f = lpf(; window=13, endpoints=nothing)
+    f = lpf(; window=13, endpoints=NoEndpoints())
     @test f.weights[7:13] ≈
         [0.240057, 0.214337, 0.147357, 0.065492, 0.0, -0.027864, -0.019350] atol = 1e-6
     for window in (5, 7, 9, 13, 23, 51, 101)
         h = (window - 1) ÷ 2
         y = randn(max(window, 120))
-        w = fit(LocalPolynomialFilter, y; window, endpoints=nothing).weights
+        w = fit(LocalPolynomialFilter, y; window, endpoints=NoEndpoints()).weights
         @test w ≈ henderson_closed_form(h) atol = 1e-10
         @test sum(w) ≈ 1
     end
-    @test lpf(; window=9, endpoints=nothing).weights[5:9] ≈
+    @test lpf(; window=9, endpoints=NoEndpoints()).weights[5:9] ≈
         [0.331139, 0.266557, 0.118470, -0.009872, -0.040724] atol = 1e-6
 end
 
@@ -112,7 +119,7 @@ end
     @test musgrave_ic_ratio(9) == 1.0
     @test musgrave_ic_ratio(13) == 3.5
     @test musgrave_ic_ratio(23) == 4.5
-    @test musgrave_ic_ratio(15) == 3.5
+    @test_throws ArgumentError musgrave_ic_ratio(15)
 end
 
 @testset "minimum-revision weights" begin
@@ -149,7 +156,7 @@ end
     @test 0 ≤ f.endpoints.ratio ≤ Inf
 
     h = 6
-    final = predict(lpf(; endpoints=nothing), _y)
+    final = predict(lpf(; endpoints=NoEndpoints()), _y)
     function msre(ratio)
         v = lpf(; endpoints=MinimumRevision(; degree=1, ratio)).end_weights[1]
         return sum(abs2(final[t] - dot(v, _y[(t - h):t])) for t in (h + 1):(120 - h))
@@ -157,14 +164,31 @@ end
     for ratio in (0.0, 1e-3, 1e-2, 1e-1, 1.0, Inf)
         @test msre(f.endpoints.ratio) ≤ msre(ratio) + 1e-10
     end
-    @test_throws ArgumentError fit(LocalPolynomialFilter, _y[1:20])
+
+    # Too short to estimate: falls back to ratio 0 and says so
+    short = fit(LocalPolynomialFilter, _y[1:20])
+    @test short.endpoints.ratio == 0
+    @test haskey(short.estimated, :ratio_note)
+end
+
+@testset "reporting estimated hyperparameters" begin
+    @test_logs (:info, r"LocalPolynomialFilter") lpf()
+    @test_logs min_level = Logging.Info lpf(; endpoints=MinimumRevision(; ratio=0.1))
+    logs, f = Test.collect_test_logs(() -> lpf(; window=[9, 13]))
+    @test length(logs) == 1
+    @test logs[1].group === :estimated
+    @test logs[1].kwargs[:window] == f.window
+    @test logs[1].kwargs[:ratio] == f.endpoints.ratio
+    @test haskey(f.estimated, :cv_score) && haskey(f.estimated, :msre)
+    @test isempty(lpf(; endpoints=musgrave(3.5)).estimated)
 end
 
 @testset "window selection (CV)" begin
-    f = lpf(; window=:cv, endpoints=nothing)
+    f = lpf(; window=7:2:51, endpoints=NoEndpoints())
     @test isodd(f.window)
     @test f.window ∈ 7:2:51
-    @test lpf(; window=:cv, windows=[9, 13], endpoints=nothing).window ∈ (9, 13)
+    @test f.estimated.window == f.window
+    @test lpf(; window=[9, 13], endpoints=NoEndpoints()).window ∈ (9, 13)
 end
 
 @testset "LocalPolynomialFilter predict" begin
@@ -184,7 +208,7 @@ end
     @test predict(f, reverse(_y)) ≈ reverse(predict(f, _y))    # mirrored start
     @test length(predict(f, randn(13))) == 13
     @test_throws ArgumentError predict(f, randn(12))
-    x = predict(lpf(; endpoints=nothing), _y)
+    x = predict(lpf(; endpoints=NoEndpoints()), _y)
     @test all(isnan, x[[1:6; 115:120]])
     @test all(isfinite, x[7:114])
 end
@@ -199,12 +223,12 @@ end
     @test_throws ArgumentError lpf(;
         window=7, endpoints=MinimumRevision(; degree=2, ratio=Inf)
     )
-    f = lpf(; window=7, degree=4, endpoints=MinimumRevision(; degree=2))    # :msre, no Inf
+    # Estimated ratio without the Inf candidate
+    f = lpf(; window=7, degree=4, endpoints=MinimumRevision(; degree=2))
     @test isfinite(f.endpoints.ratio)
     @test all(isfinite, predict(f, _y))
     @test_throws ArgumentError fit(LocalPolynomialFilter, randn(60); window=3, degree=2)
     @test_throws DomainError MinimumRevision(; ratio=-1)
-    @test_throws ArgumentError MinimumRevision(; ratio=:auto)
     @test_throws DomainError musgrave(0)
     @test_throws ArgumentError fit(LocalPolynomialFilter, [1.0, NaN, 3.0])
 end

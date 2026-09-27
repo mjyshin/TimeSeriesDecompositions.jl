@@ -50,8 +50,10 @@ export AbstractDecomp, Component, GPDecomp, X11Decomp, STLDecomp
 export AbstractFilter, AbstractTrendFilter, AbstractSeasonalFilter
 export LocalPolynomialFilter, MovingAverage, LoessFilter
 export StableSeasonalFilter, SeasonalMovingAverage
-export AbstractEndpoints, DirectAsymmetric, MinimumRevision, musgrave, musgrave_ic_ratio
-export filter_kernel
+export AbstractEndpoints, NoEndpoints, DirectAsymmetric, MinimumRevision
+export musgrave, musgrave_ic_ratio
+export AbstractFilterKernel, HendersonKernel, BiweightKernel, TricubeKernel
+export EpanechnikovKernel, UniformKernel, kernel_weights
 
 Base.@deprecate_binding Decomposition GPDecomp
 
