@@ -102,10 +102,10 @@ end
     d = fit(X11Decomp, _yc, _tc; period=1.0)
     f = d.θ.smoothers.trend
     @test f isa FittedSmoother{<:LocalPolynomial{HendersonKernel}}
-    @test f.model.window == 13
+    @test f.model.bandwidth ≈ 1.0    # 12 months
     @test f.model.endpoints isa MinimumRevision{Float64}
     @test f.model.endpoints.degree == 1
-    @test d.θ.estimated.trend_window == 13
+    @test d.θ.estimated.trend_bandwidth ≈ 1.0
     @test d.θ.estimated.ratio == f.model.endpoints.ratio
     @test haskey(d.θ.estimated, :msr)
     @test d.θ.smoothers.seasonal.model isa Union{SeasonalMovingAverage,StableSeasonal}
@@ -114,12 +114,12 @@ end
         _yc,
         _tc;
         period=1.0,
-        trend=Henderson(; window=13, endpoints=musgrave(3.5)),
+        trend=Henderson(; bandwidth=1.0, endpoints=musgrave(3.5)),
     )
     @test m.θ.smoothers.trend.model.endpoints.ratio ≈ 4 / (π * 3.5^2)
     @test m.trend.mean != d.trend.mean
-    h23 = fit(X11Decomp, _yc, _tc; period=1.0, trend=Henderson(; window=23))
-    @test h23.θ.smoothers.trend.model.window == 23
+    h23 = fit(X11Decomp, _yc, _tc; period=1.0, trend=Henderson(; bandwidth=22 / 12))
+    @test h23.θ.smoothers.trend.model.bandwidth == 22 / 12
     s = fit(X11Decomp, _yc, _tc; period=1.0, seasonal=StableSeasonal())
     @test s.θ.smoothers.seasonal.model isa StableSeasonal
     @test !haskey(s.θ.estimated, :msr)
@@ -129,15 +129,15 @@ end
     @test all(isfinite, dh.rate.mean[7:(end - 6)])
     @test all(isfinite, dh.seasonal.mean)    # NaN preliminary ends are handled by phase
     ma = fit(X11Decomp, _yc, _tc; period=1.0, trend=MovingAverage())
-    @test ma.θ.estimated.trend_width ≈ 1.0
+    @test ma.θ.estimated.trend_bandwidth ≈ 1.0
     @test all(isnan, ma.trend.mean[[1:6; (end - 5):end]])
     @test all(isfinite, ma.trend.mean[7:(end - 6)])
 end
 
 @testset "X11Decomp period-general defaults" begin
-    for (p, window) in ((2, 5), (4, 5), (7, 9), (12, 13), (24, 25))
+    for (p, bandwidth) in ((2, 4), (4, 4), (7, 8), (12, 12), (24, 24))
         y = randn(10p)
-        @test fit(X11Decomp, y; period=p).θ.smoothers.trend.model.window == window
+        @test fit(X11Decomp, y; period=p).θ.smoothers.trend.model.bandwidth == bandwidth
     end
     # Seasonal filters needing more cycles than available are shortened
     d = fit(X11Decomp, randn(6 * 12); period=12, seasonal=SeasonalMovingAverage(; n=3, m=9))
@@ -208,8 +208,8 @@ end
 
 @testset "X11Decomp reports a derived preliminary trend" begin
     d = fit(X11Decomp, _yc, _tc; period=1.0, preliminary_trend=MovingAverage())
-    @test d.θ.estimated.preliminary_trend_width ≈ 1.0
-    @test d.θ.smoothers.preliminary_trend.model.width ≈ 1.0
+    @test d.θ.estimated.preliminary_trend_bandwidth ≈ 1.0
+    @test d.θ.smoothers.preliminary_trend.model.bandwidth ≈ 1.0
 end
 
 @testset "X11Decomp reports an estimated preliminary ratio" begin
@@ -220,7 +220,7 @@ end
     @test haskey(d.θ.estimated, :preliminary_msre)
 end
 
-@testset "STLDecomp reports its derived trend window" begin
+@testset "STLDecomp reports its derived trend span" begin
     @test_logs (:info, r"STLDecomp") fit(STLDecomp, _yc, _tc; period=1.0)
     @test_logs min_level = Logging.Info fit(
         STLDecomp, _yc, _tc; period=1.0, trend=LOESS(; span=0.2, degree=1)
@@ -238,7 +238,7 @@ end
         _yc,
         _tc;
         period=1.0,
-        trend=Henderson(; window=13, endpoints=musgrave(3.5)),
+        trend=Henderson(; bandwidth=1.0, endpoints=musgrave(3.5)),
         seasonal=SeasonalMovingAverage(; n=3, m=5),
     )
 end
@@ -254,7 +254,7 @@ end
         @test d.θ.smoothers.preliminary_trend.model == f.model
     end
     # Loess interior weights with minimum-revision ends: the tricube local polynomial
-    hybrid = LocalPolynomial(; window=13, degree=2, kernel=TricubeKernel())
+    hybrid = LocalPolynomial(; bandwidth=1.0, degree=2, kernel=TricubeKernel())
     d = fit(X11Decomp, _yc, _tc; period=1.0, trend=hybrid)
     @test d.θ.smoothers.trend.model.endpoints isa MinimumRevision{Float64}
 end

@@ -7,13 +7,16 @@ tricube weights `(1 - (|tᵢ - x| / λ(x))³)³` times the observation weights. 
 exactly at every point, matching R's `loess(..., surface = "direct")`.
 
 - `span`: the fraction `α` of the observations in each local fit, as in R's `loess`:
-  the bandwidth `λ(x)` is the distance to the `⌊αN⌋`-th nearest observation, so it
+  the radius `λ(x)` is the distance to the `⌊αN⌋`-th nearest observation, so it
   adapts to the local density of `t`. `α > 1` gives smoother fits, with `λ` the distance
   to the farthest observation times `√α`, as R's `loess` computes.
-- `bandwidth`: a bandwidth in units of `t`. Alone, it gives a fixed-bandwidth smoother,
-  which smooths over the same time scale however irregular `t` is (every local fit must
-  still contain `degree + 1` observations). With `span`, the bandwidth at `x` is the
-  larger of the two, as in `locfit`, so that gaps are bridged.
+- `bandwidth`: the width `2λ` of the local fits in units of `t`, twice the radius, so
+  that on a grid of spacing `Δ`, `bandwidth = 2hΔ` reaches the `2h + 1` samples at
+  offsets `-h:h` (the outer two with tricube weight zero). Alone, it gives a
+  fixed-bandwidth smoother, which smooths over the same time scale however irregular `t`
+  is (every local fit must still contain `degree + 1` observations with positive
+  weight). With `span`, the radius at `x` is the larger of the two, as in `locfit`, so
+  that gaps are bridged.
 - `degree`: degree of the local polynomials, `0`, `1` or `2`.
 
 If neither `span` nor `bandwidth` is given, the span is chosen by minimising the AICc of
@@ -84,13 +87,16 @@ function _fit(
     isnothing(span) ||
         _span_neighbours(span, N) ≥ degree + 2 ||
         throw(ArgumentError("span × N must be at least degree + 2 = $(degree + 2)"))
-    α, h = something(span, 0.0), something(bandwidth, 0.0)
+    α, h = something(span, 0.0), _radius(bandwidth)
     values = first(_loess_fit(t, y, wts, α, h, degree))
     resolved = LOESS(_float(span), bandwidth, degree)
     return FittedSmoother(resolved, t, y, values, (; wts), estimated)
 end
 
 _float(x) = isnothing(x) ? nothing : Float64(x)
+
+# Fixed radius λ of a bandwidth (twice the radius), 0 for none
+_radius(bandwidth) = isnothing(bandwidth) ? 0.0 : bandwidth / 2
 
 # Number of nearest neighbours q = ⌊αN + 10⁻⁵⌋ for the span α, the rounding of R's loess
 _span_neighbours(span, N) = floor(Int, span * N + 1e-5)
@@ -99,17 +105,17 @@ function predict(
     f::FittedSmoother{LOESS}, t_new::AbstractVector{<:Real}; extrapolate::Bool=false
 )
     extrapolate || _check_in_range(f.t, t_new)
-    α, h = something(f.model.span, 0.0), something(f.model.bandwidth, 0.0)
+    α, h = something(f.model.span, 0.0), _radius(f.model.bandwidth)
     return [
         _local_value(f.t, f.y, f.state.wts, α, h, f.model.degree, Float64(x)) for x in t_new
     ]
 end
 
-# Local fit at x: the observations idx within the bandwidth λ of x (contiguous in the
+# Local fit at x: the observations idx within the radius λ of x (contiguous in the
 # sorted t), λ, and the coefficients c of the equivalent kernel, so that observation i
 # has weight lᵢ = wᵢ c(uᵢ) with uᵢ = (tᵢ - x) / λ, the polynomial c(u) = Σₖ cₖ uᵏ and
 # wᵢ the tricube times observation weight: c = G⁻¹e₁ for the moments Gⱼₖ = Σᵢ wᵢ uᵢʲ⁺ᵏ.
-# λ is the larger of the fixed bandwidth h and, for the span α > 0, the distance to the
+# λ is the larger of the fixed radius h and, for the span α > 0, the distance to the
 # ⌊αN⌋-th nearest observation; for α > 1, the distance to the farthest one times √α,
 # as R's loess computes for one predictor (its documentation states α^(1/p))
 function _local_fit(t::Vector{Float64}, wts::Vector{Float64}, α, h, degree, x::Float64)
@@ -182,7 +188,7 @@ function _loess_fit(t, y, wts, α, h, degree)
 end
 
 # Hat matrix L of the loess fit at the observed times (banded: row i spans the
-# observations within the bandwidth of tᵢ)
+# observations within the radius of tᵢ)
 function _hat_matrix(t, wts, α, h, degree)
     N = length(t)
     rows, cols, vals = Int[], Int[], Float64[]

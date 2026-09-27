@@ -134,9 +134,13 @@ and component estimates are in the original scale.
   `Inf` (default) gives a stationary periodic kernel. A finite value lets the
   seasonal pattern evolve slowly over time. Must be at least `period`. Never
   optimized. If `θ_init` contains `:bandwidth`, that value is used as the default.
-- `kernel`: `NamedTuple` specifying the kernel for each component. Supported keys:
-  `trend`, `seasonal`, `bandwidth`. Unspecified keys default to `SEKernel()`.
-  Example: `kernel=(trend=Matern52Kernel(), seasonal=Matern32Kernel())`.
+- `kernel`: base kernel(s) of the components (default `Matern52Kernel()`). A single
+  kernel applies to every component. A `NamedTuple` with keys `trend` and `seasonal`
+  sets them separately, and `seasonal` may itself be a kernel (for both the periodic
+  effect and its envelope) or a `NamedTuple` with keys `effect` and `envelope`.
+  Unspecified components default to `Matern52Kernel()`. Examples:
+  `kernel=SEKernel()`, `kernel=(trend=SEKernel(), seasonal=Matern32Kernel())`,
+  `kernel=(seasonal=(effect=Matern32Kernel(), envelope=SEKernel()),)`.
 - `approx_rate`: use fast finite-difference rate with `std=NaN` (default `false`);
   set `true` to skip the posterior covariance computation for speed
 - `θ_init`: `NamedTuple` of initial values for the optimized hyperparameters
@@ -166,7 +170,7 @@ function fit(
     t::AbstractVector{<:Real}=eachindex(y);
     period::Union{Real,Nothing}=nothing,
     bandwidth::Union{Real,Nothing}=nothing,
-    kernel::Union{Nothing,NamedTuple}=nothing,
+    kernel::Union{Kernel,NamedTuple}=_DEFAULT_KERNEL,
     approx_rate::Bool=false,
     θ_init::Union{Nothing,NamedTuple}=nothing,
     θ_fixed::AbstractVector{<:Union{Symbol,String}}=Symbol[],
@@ -212,7 +216,7 @@ function fit(
     perm = sortperm(t)
     y_s = Float64.(y[perm])
     t_s = Float64.(t[perm])
-    kernels = _merge_kernels(kernel)
+    kernels = _resolve_kernels(kernel)
 
     result = _fit_gp(
         y_s,

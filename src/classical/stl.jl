@@ -51,7 +51,7 @@ function fit(
     N ≥ 2p || throw(ArgumentError("need at least two periods of observations"))
     trend, estimated = _resolve_stl_trend(trend, p, Δt, N)
 
-    initial_trend = _fit(MovingAverage(; width=p * Δt), y, t)
+    initial_trend = _fit(MovingAverage(; bandwidth=p * Δt), y, t)
     seasonal_fit, seasonal, _ = _seasonal(
         StableSeasonal(), y - predict(initial_trend), t, p, Δt
     )

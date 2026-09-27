@@ -43,12 +43,13 @@ including at the ends.
 - `trend`: an [`AbstractTrendSmoother`](@ref) for the final trend (default
   [`Henderson`](@ref)`()`, with QL minimum-revision end weights whose ratio is estimated
   from the seasonally adjusted series). Hyperparameters left as `nothing` are derived
-  from `p`: a [`LocalPolynomial`](@ref) window is the smallest odd integer `≥ p + 1` (at
-  least 5), giving the 5- and 13-term Henderson filters of X-11 for quarterly and
-  monthly data; a [`LOESS`](@ref) span covers the smallest odd number `≥ p + 3` (at
-  least 7) of observations, which matches that Henderson filter's cutoff and noise
-  reduction at degree 2; a [`MovingAverage`](@ref) width is the period. Use
-  `Henderson(; window=13, endpoints=musgrave(3.5))` for X-11's Musgrave weights.
+  from `p`: a [`LocalPolynomial`](@ref) bandwidth is `2hΔt` for the smallest even
+  `2h ≥ p` (at least 4), giving the 5- and 13-term Henderson filters of X-11 for
+  quarterly and monthly data; a [`LOESS`](@ref) span covers the smallest odd number
+  `≥ p + 3` (at least 7) of observations, which matches that Henderson filter's cutoff
+  and noise reduction at degree 2; a [`MovingAverage`](@ref) bandwidth is the period.
+  Use `Henderson(; bandwidth=12, endpoints=musgrave(3.5))` for X-11's Musgrave weights
+  on monthly data with `Δt = 1`.
 - `preliminary_trend`: the first-pass trend smoother; `nothing` (default) uses `trend`
   with the same hyperparameters and minimum-revision end weights of ratio `0`.
 - `preliminary_seasonal`: the first-pass seasonal filter (default
@@ -89,7 +90,7 @@ function fit(
         (estimated = (; estimated..., _prefix_keys(:preliminary_, derived)...))
 
     # Pass 1
-    initial_trend = _fit(MovingAverage(; width=p * Δt), y, t)
+    initial_trend = _fit(MovingAverage(; bandwidth=p * Δt), y, t)
     preliminary_seasonal_fit, seasonal_values, note = _seasonal(
         preliminary_seasonal, y - predict(initial_trend), t, p, Δt
     )
@@ -149,10 +150,11 @@ end
 
 # Replace the hyperparameters of a trend smoother left as nothing by those derived from
 # the p samples per period; returns the smoother and the derived values
-function _resolve_trend(m::LocalPolynomial, p, _, _)
-    isnothing(m.window) || return m, (;)
-    window = max(5, _nextodd(p + 1))
-    return LocalPolynomial(window, m.degree, m.kernel, m.endpoints), (; trend_window=window)
+function _resolve_trend(m::LocalPolynomial, p, Δt, _)
+    isnothing(m.bandwidth) || return m, (;)
+    bandwidth = max(4, 2cld(p, 2)) * Δt
+    return LocalPolynomial(bandwidth, m.degree, m.kernel, m.endpoints),
+    (; trend_bandwidth=bandwidth)
 end
 
 function _resolve_trend(m::LOESS, p, _, N)
@@ -163,20 +165,20 @@ function _resolve_trend(m::LOESS, p, _, N)
 end
 
 function _resolve_trend(m::MovingAverage, p, Δt, _)
-    isnothing(m.width) || return m, (;)
-    width = p * Δt
-    return MovingAverage(width, m.endpoints, m.gapfactor), (; trend_width=width)
+    isnothing(m.bandwidth) || return m, (;)
+    bandwidth = p * Δt
+    return MovingAverage(bandwidth, m.endpoints, m.gapfactor), (; trend_bandwidth=bandwidth)
 end
 
 # The preliminary trend: the final smoother with minimum-revision end weights of ratio 0
 _preliminary(m::AbstractTrendSmoother) = m
 
 function _preliminary(m::LocalPolynomial)
-    return LocalPolynomial(m.window, m.degree, m.kernel, _preliminary(m.endpoints))
+    return LocalPolynomial(m.bandwidth, m.degree, m.kernel, _preliminary(m.endpoints))
 end
 
 function _preliminary(m::MovingAverage)
-    return MovingAverage(m.width, _preliminary(m.endpoints), m.gapfactor)
+    return MovingAverage(m.bandwidth, _preliminary(m.endpoints), m.gapfactor)
 end
 
 _preliminary(e::AbstractEndpoints) = e
@@ -209,7 +211,7 @@ function _seasonal(model::AbstractSeasonalSmoother, x, t, p, Δt)
     for i in (last(inner) + 1):N
         s[i] = s[i - cld(i - last(inner), p) * p]
     end
-    centre = predict(_fit(MovingAverage(; width=p * Δt), s, t))
+    centre = predict(_fit(MovingAverage(; bandwidth=p * Δt), s, t))
     defined = _finite_range(centre)
     offset = [centre[clamp(i, first(defined), last(defined))] for i in 1:N]
     return fitted, s - offset, note

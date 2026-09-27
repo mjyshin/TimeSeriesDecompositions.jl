@@ -1,22 +1,23 @@
 """
-    MovingAverage(; width=nothing, endpoints=NoEndpoints(), gapfactor=3)
+    MovingAverage(; bandwidth=nothing, endpoints=NoEndpoints(), gapfactor=3)
         <: AbstractTrendSmoother
 
-Moving average over a window of `width` (in units of `t`), defined for any times as the
-Gasser–Müller box average: the average over `[x - width/2, x + width/2]` of the
-piecewise-constant interpolant that gives each observation its Voronoi cell (the
-interval between the midpoints to its neighbours; the outer cells extend half a spacing
-beyond the data, and tied times share one cell). Observation `i` thus has weight
-`|cellᵢ ∩ window| / width`.
+Moving average over a window of length `bandwidth` (in units of `t`, twice the radius),
+defined for any times as the Gasser–Müller box average: the average over
+`[x - bandwidth/2, x + bandwidth/2]` of the piecewise-constant interpolant that gives
+each observation its Voronoi cell (the interval between the midpoints to its neighbours;
+the outer cells extend half a spacing beyond the data, and tied times share one cell).
+Observation `i` thus has weight `|cellᵢ ∩ window| / bandwidth`.
 
-On a regular grid of spacing `Δ` with `width = mΔ` it is exactly the `m`-term moving
-average for odd `m` and the centred `2 × m` average (weights `[½, 1, …, 1, ½] / m`) for
-even `m`, which annihilates any fixed seasonal pattern of period `m`; for irregular `t`
-it approximates the time integral over the window, so it approximately annihilates it.
+On a regular grid of spacing `Δ` with `bandwidth = mΔ` it is exactly the centred `2 × m`
+average for even `m` (weights `[½, 1, …, 1, ½] / m` on the `m + 1` samples within
+`bandwidth / 2`, the outer two half covered) and the `m`-term moving average for odd `m`,
+which annihilates any fixed seasonal pattern of period `m`; for irregular `t` it
+approximates the time integral over the window, so it approximately annihilates it.
 It reproduces constants, but lines only where the observations are symmetric about `x`.
 
-- `width`: window length in units of `t` (required; inside a decomposition, `nothing`
-  gives the period).
+- `bandwidth`: window length in units of `t` (required; inside a decomposition,
+  `nothing` gives the period).
 - `endpoints`: [`NoEndpoints`](@ref) (default) gives `NaN` where the window extends beyond
   the outer cells, as in R's `decompose`; on a regular grid,
   [`MinimumRevision`](@ref)`(degree=0)` or [`DirectAsymmetric`](@ref) (the truncated,
@@ -25,38 +26,40 @@ It reproduces constants, but lines only where the observations are symmetric abo
   more than `gapfactor` typical spacings of the window, i.e. where a gap in the data
   leaves the window to a single observation. The typical spacing is the gap containing a
   random time (the median of the gaps weighted by their length), so bursts of closely
-  spaced observations do not shrink it. When the width spans at most `gapfactor`
+  spaced observations do not shrink it. When the bandwidth spans at most `gapfactor`
   spacings the rule cannot apply, and within a gap the average is that of the nearest
   observation.
 """
 struct MovingAverage{E<:AbstractEndpoints} <: AbstractTrendSmoother
-    width::Union{Nothing,Float64}
+    bandwidth::Union{Nothing,Float64}
     endpoints::E
     gapfactor::Float64
 end
 
 function MovingAverage(;
-    width::Union{Nothing,Real}=nothing,
+    bandwidth::Union{Nothing,Real}=nothing,
     endpoints::AbstractEndpoints=NoEndpoints(),
     gapfactor::Real=3,
 )
-    isnothing(width) || width > 0 || throw(DomainError(width, "width must be positive"))
+    isnothing(bandwidth) ||
+        bandwidth > 0 ||
+        throw(DomainError(bandwidth, "bandwidth must be positive"))
     gapfactor ≥ 1 || throw(DomainError(gapfactor, "gapfactor must be at least 1"))
-    return MovingAverage(_float(width), endpoints, Float64(gapfactor))
+    return MovingAverage(_float(bandwidth), endpoints, Float64(gapfactor))
 end
 
 function Base.show(io::IO, m::MovingAverage)
-    width = isnothing(m.width) ? "nothing" : _fmt(m.width)
-    print(io, "MovingAverage(width=$width, endpoints=$(m.endpoints)")
+    print(io, "MovingAverage(bandwidth=$(_fmt_bandwidth(m.bandwidth)), ")
+    print(io, "endpoints=$(m.endpoints)")
     m.gapfactor == 3 || print(io, ", gapfactor=", _fmt(m.gapfactor))
     return print(io, ")")
 end
 
 function _fit(model::MovingAverage, y::AbstractVector{<:Real}, t::AbstractVector{<:Real})
     y, t = _sorted_data(y, t)
-    isnothing(model.width) &&
-        throw(ArgumentError("MovingAverage needs a width (in units of t)"))
-    W = model.width
+    isnothing(model.bandwidth) &&
+        throw(ArgumentError("MovingAverage needs a bandwidth (in units of t)"))
+    W = model.bandwidth
     times, means = _pool_ties(t, y)
     length(times) ≥ 2 || throw(ArgumentError("need at least two distinct times"))
     spacing = _typical_spacing(times)
@@ -88,7 +91,7 @@ end
 
 function predict(f::FittedSmoother{<:MovingAverage}, t_new::AbstractVector{<:Real})
     _check_in_range(f.t, t_new)
-    values, gaps = _box_average(f.state, f.model.width, f.y, t_new, f.values)
+    values, gaps = _box_average(f.state, f.model.bandwidth, f.y, t_new, f.values)
     _warn_gaps(gaps)
     return values
 end
@@ -120,7 +123,7 @@ function _cell_edges(times)
 end
 
 # On a regular grid, the box average at offset d (in samples) from x is the local
-# constant fit with weights |[d - ½, d + ½] ∩ [-b, b]| for b = width / 2Δ
+# constant fit with weights |[d - ½, d + ½] ∩ [-b, b]| for b = bandwidth / 2Δ
 function _box_kernel(m::Real)
     b = m / 2
     return _GridKernel(d -> clamp(b + 0.5 - abs(d), 0.0, 1.0), ceil(Int, b + 0.5) - 1)

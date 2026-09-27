@@ -152,6 +152,34 @@ end
     @test !isnothing(d.seasonal)
 end
 
+@testset "kernel kwarg resolution" begin
+    R = GPDecompositions._resolve_kernels
+    M52, M32, SE = Matern52Kernel(), Matern32Kernel(), SEKernel()
+    @test R(M52) == (trend=M52, seasonal=(effect=M52, envelope=M52))
+    @test R(SE) == (trend=SE, seasonal=(effect=SE, envelope=SE))
+    @test R((trend=SE,)) == (trend=SE, seasonal=(effect=M52, envelope=M52))
+    @test R((trend=SE, seasonal=M32)) == (trend=SE, seasonal=(effect=M32, envelope=M32))
+    @test R((seasonal=(effect=M32, envelope=SE),)) ==
+        (trend=M52, seasonal=(effect=M32, envelope=SE))
+    @test R((seasonal=(effect=M32,),)) == (trend=M52, seasonal=(effect=M32, envelope=M52))
+    @test_throws ArgumentError R((bandwidth=SE,))
+    @test_throws ArgumentError R((seasonal=(bandwidth=SE,),))
+    @test_throws ArgumentError R((trend=1.0,))
+
+    d = fit(
+        GPDecomp,
+        _y,
+        _t;
+        period=12.0,
+        bandwidth=30.0,
+        kernel=(trend=SE, seasonal=(effect=M32, envelope=SE)),
+    )
+    s = sprint(show, MIME"text/plain"(), d)
+    @test occursin(r"trend\s+SqExponentialKernel", s)
+    @test occursin(r"seasonal\s+Matern32Kernel", s)
+    @test occursin(r"envelope\s+SqExponentialKernel", s)
+end
+
 @testset "θ from fit can be passed as θ_init" begin
     d1 = fit(GPDecomp, _y, _t; period=12.0, bandwidth=30.0)
     d2 = fit(GPDecomp, _y, _t; θ_init=d1.θ)
