@@ -28,6 +28,9 @@ include("derivatives.jl")
 include("fit.jl")
 include("predict.jl")
 
+# Classical (filter-based) methods, imported verbatim from RealTimeEstimators.jl
+include("RealTimeEstimators/RealTimeEstimators.jl")
+
 export Decomposition, Component
 export fit, predict
 
