@@ -37,10 +37,10 @@ function Base.show(io::IO, ::MIME"text/plain", d::GPDecomp)
 
     kernels = Pair{Symbol,String}[:trend => _kernel_name(fi.kernels.trend)]
     if has_seasonal
-        k_seasonal = _kernel_name(fi.kernels.seasonal)
+        k_seasonal = _kernel_name(fi.kernels.seasonal.effect)
         push!(kernels, :seasonal => "$k_seasonal, periodic, zero-mean")
         isfinite(θ.bandwidth) &&
-            push!(kernels, :envelope => _kernel_name(fi.kernels.bandwidth))
+            push!(kernels, :envelope => _kernel_name(fi.kernels.seasonal.envelope))
     end
     _show_section(io, "kernels", kernels)
 
