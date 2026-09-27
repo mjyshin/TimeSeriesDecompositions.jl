@@ -59,7 +59,7 @@ function _fit_gp(
 end
 
 """
-    fit(Decomposition, y, t; kwargs...) -> Decomposition
+    fit(GPDecomp, y, t; kwargs...) -> GPDecomp
 
 Decompose time series `y` observed at times `t` into trend, seasonal, and noise
 components using a Gaussian process model.
@@ -90,7 +90,7 @@ and component estimates are in the original scale.
 - `max_iter`: maximum optimizer iterations (default 1000)
 """
 function fit(
-    ::Type{Decomposition},
+    ::Type{GPDecomp},
     y::AbstractVector{<:Real},
     t::AbstractVector{<:Real}=eachindex(y);
     period::Union{Real,Nothing}=nothing,

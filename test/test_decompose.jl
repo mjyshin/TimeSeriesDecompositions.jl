@@ -14,7 +14,7 @@ using Statistics
     noise_true    = 0.15 .* randn(N)
     y = trend_true .+ seasonal_true .+ noise_true
 
-    d = fit(Decomposition, y, t; period=12.0, sig=[0.9])
+    d = fit(GPDecomp, y, t; period=12.0, sig=[0.9])
 
     tol = 1.5
     @test mean(abs.(d.trend.mean    .- trend_true))    < tol
@@ -26,8 +26,8 @@ end
     t = collect(1.0:Float64(N))
     y = 2.0 .* sin.(2π .* t ./ 12) .+ 0.1 .* randn(N)
 
-    d_static = fit(Decomposition, y, t; period=12.0, bandwidth=Inf)
-    d_qp     = fit(Decomposition, y, t; period=12.0, bandwidth=200.0)
+    d_static = fit(GPDecomp, y, t; period=12.0, bandwidth=Inf)
+    d_qp     = fit(GPDecomp, y, t; period=12.0, bandwidth=200.0)
 
     @test cor(d_static.seasonal.mean, d_qp.seasonal.mean) > 0.9
 end
@@ -36,7 +36,7 @@ end
     t = collect(1.0:30.0)
     y = sin.(2π .* t ./ 6) .+ 0.1 .* randn(30)
 
-    d = fit(Decomposition, y, t; period=6.0, θ_fixed=[:σ_noise])
+    d = fit(GPDecomp, y, t; period=6.0, θ_fixed=[:σ_noise])
     @test d.θ.period ≈ 6.0
 end
 
@@ -45,7 +45,7 @@ end
     t = collect(1.0:Float64(N))
     y = sin.(2π .* t ./ 12) .+ 0.05t .+ 0.1 .* randn(N)
 
-    d = fit(Decomposition, y, t; period=12.0)
+    d = fit(GPDecomp, y, t; period=12.0)
     reconstructed = d.trend.mean .+ d.seasonal.mean .+ d.noise.mean
 
     @test mean(abs.(reconstructed .- y)) < 0.5

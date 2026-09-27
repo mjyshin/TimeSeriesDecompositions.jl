@@ -92,16 +92,16 @@ function _build_decomposition(
     rate     = _rate_estimate(post, t_out, sig, s_y)
 
     fi = (ȳ=ȳ, s_y=s_y, approx_rate=approx_rate)
-    return Decomposition(t_out, trend, seasonal, noise, rate, sig, params, post, fi)
+    return GPDecomp(t_out, trend, seasonal, noise, rate, sig, params, post, fi)
 end
 
 """
-    predict(d::Decomposition, t_new=d.t; sig=d.sig) -> Decomposition
+    predict(d::GPDecomp, t_new=d.t; sig=d.sig) -> GPDecomp
 
 Re-evaluate a fitted decomposition at new time points without re-fitting.
 """
 function predict(
-    d::Decomposition,
+    d::GPDecomp,
     t_new::AbstractVector{<:Real}=d.t;
     sig::AbstractVector{<:Real}=d.sig,
 )

@@ -20,18 +20,28 @@ using AbstractGPs: AbstractGP, PosteriorGP
 using KernelFunctions: kernelmatrix
 using ParameterHandling: positive, fixed
 
-include("types.jl")
-include("utils.jl")
-include("params.jl")
-include("kernels.jl")
-include("derivatives.jl")
-include("fit.jl")
-include("predict.jl")
+# Shared types and helpers
+include("common.jl")
 
-# Classical (filter-based) methods, imported verbatim from RealTimeEstimators.jl
-include("RealTimeEstimators/RealTimeEstimators.jl")
+# Gaussian-process decomposition
+include("gp/types.jl")
+include("gp/utils.jl")
+include("gp/params.jl")
+include("gp/kernels.jl")
+include("gp/derivatives.jl")
+include("gp/fit.jl")
+include("gp/predict.jl")
 
-export Decomposition, Component
+# Classical filter-based decompositions
+include("filters/Filters.jl")
+include("x11.jl")
+include("stl.jl")
+include("filterdecomps.jl")
+
+export AbstractDecomp, Component
+export GPDecomp, X11Decomp, STLDecomp
 export fit, predict
+
+Base.@deprecate_binding Decomposition GPDecomp
 
 end # module GPDecompositions
