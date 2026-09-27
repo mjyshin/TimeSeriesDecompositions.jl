@@ -22,7 +22,7 @@ function Base.show(io::IO, ::MIME"text/plain", d::_FilterDecomp)
     _show_header(io, d)
     _show_line(io, "components", "trend, seasonal, noise, rate (point estimates)")
     _show_line(io, "period", _fmt(d.θ.period))
-    _show_section(io, "filters", pairs(d.θ.filters))
+    _show_section(io, "smoothers", pairs(map(f -> f.model, d.θ.smoothers)))
     _show_section(io, "estimated", pairs(d.θ.estimated))
     return nothing
 end

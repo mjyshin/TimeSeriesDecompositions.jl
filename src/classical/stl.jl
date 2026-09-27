@@ -1,8 +1,8 @@
 """
     STLDecomp <: AbstractDecomp
 
-Seasonal-trend decomposition with a loess trend. The fitted filters are in
-`d.θ.filters` and the hyperparameters chosen from the data in `d.θ.estimated`. Point
+Seasonal-trend decomposition with a loess trend. The fitted smoothers are in
+`d.θ.smoothers` and the hyperparameters chosen from the data in `d.θ.estimated`. Point
 estimates only (`std` is `NaN`). See `fit(STLDecomp, ...)`.
 
 !!! warning "Placeholder"
@@ -21,16 +21,17 @@ struct STLDecomp <: AbstractDecomp
 end
 
 """
-    fit(STLDecomp, y, t=eachindex(y); period, trend_window) -> STLDecomp
+    fit(STLDecomp, y, t=eachindex(y); period, trend=LOESS(; degree=1)) -> STLDecomp
 
 Loess-based seasonal-trend decomposition of `y` observed at uniformly spaced times `t`.
 **Placeholder** for STL; see [`STLDecomp`](@ref).
 
 # Keyword arguments
 - `period`: seasonal period in units of `t` (required); `period / Δt` must be an integer.
-- `trend_window`: number of nearest observations in the local-linear loess trend.
-  Defaults to Cleveland et al.'s rule `n_t ≥ 1.5 n_p / (1 - 1.5 / n_s)` with the smallest
-  seasonal window `n_s = 7`.
+- `trend`: an [`AbstractTrendSmoother`](@ref) (default local-linear [`LOESS`](@ref)). A
+  loess span left as `nothing` covers Cleveland et al.'s `n_t` observations, the
+  smallest odd integer `≥ 1.5 n_p / (1 - 1.5 / n_s)` with the smallest seasonal window
+  `n_s = 7`.
 
 Hyperparameters chosen from the data are reported with an `@info` message and stored in
 `d.θ.estimated`. The rate is the derivative of the trend per unit of `t`.
@@ -40,32 +41,42 @@ function fit(
     y::AbstractVector{<:Real},
     t::AbstractVector{<:Real}=eachindex(y);
     period::Real,
-    trend_window::Union{Nothing,Integer}=nothing,
+    trend::AbstractTrendSmoother=LOESS(; degree=1),
 )
     y, t, Δt = _uniform_grid(y, t)
     p = _samples_per_period(period, Δt)
-    window = something(trend_window, _nextodd(1.5p / (1 - 1.5 / 7)))
-    estimated = isnothing(trend_window) ? (; trend_window=window) : (;)
-    _halfwidth(window, "trend_window")
-    length(y) ≥ max(window, 2p) ||
-        throw(ArgumentError("need at least max(trend_window, two periods) observations"))
+    N = length(y)
+    N ≥ 2p || throw(ArgumentError("need at least two periods of observations"))
+    trend, estimated = _resolve_stl_trend(trend, p, Δt, N)
 
-    initial_trend = fit(MovingAverage, y; window=p)
-    detrended = y - predict(initial_trend, y)
-    seasonal_filter = fit(StableSeasonalFilter, detrended; period=p)
-    seasonal = predict(seasonal_filter, detrended)
+    initial_trend = _fit(MovingAverage(; width=p * Δt), y, t)
+    seasonal_fit, seasonal, _ = _seasonal(
+        StableSeasonal(), y - predict(initial_trend), t, p, Δt
+    )
     adjusted = y - seasonal
-    trend_filter = _fit(LoessSmoother, adjusted, t; span=window / length(y), degree=1)
-    trend = predict(trend_filter)
+    trend_fit = _fit(trend, adjusted, t)
+    trend_values = predict(trend_fit)
+    estimated = (; estimated..., trend_fit.estimated...)
 
     _log_estimated(STLDecomp, estimated)
-    filters = (; initial_trend, seasonal=seasonal_filter, trend=trend_filter)
+    smoothers = (; initial_trend, seasonal=seasonal_fit, trend=trend_fit)
     return STLDecomp(
         t,
-        Component(trend),
+        Component(trend_values),
         Component(seasonal),
-        Component(adjusted - trend),
-        Component(_trend_rate(trend, Δt)),
-        (; period=Float64(period), Δt, filters, estimated),
+        Component(adjusted - trend_values),
+        Component(_trend_rate(trend_values, Δt)),
+        (; period=Float64(period), Δt, smoothers, estimated),
     )
 end
+
+# Cleveland et al.'s trend window n_t for a loess span left as nothing; other smoothers
+# as in X11Decomp
+function _resolve_stl_trend(m::LOESS, p, _, N)
+    isnothing(m.span) && isnothing(m.bandwidth) || return m, (;)
+    q = _nextodd(1.5p / (1 - 1.5 / 7))
+    span = q / N
+    return LOESS(span, nothing, m.degree), (; trend_span=span, trend_neighbours=q)
+end
+
+_resolve_stl_trend(m::AbstractTrendSmoother, p, Δt, N) = _resolve_trend(m, p, Δt, N)

@@ -32,30 +32,28 @@ include("gp/derivatives.jl")
 include("gp/fit.jl")
 include("gp/predict.jl")
 
-include("filters/filters.jl")
-include("filters/kernels.jl")
-include("filters/localpolynomial.jl")
-include("filters/movingaverage.jl")
-include("filters/loess.jl")
-include("filters/seasonal.jl")
-include("filters/derivative.jl")
+include("smoothers/smoothers.jl")
+include("smoothers/kernels.jl")
+include("smoothers/endpoints.jl")
+include("smoothers/localpolynomial.jl")
+include("smoothers/movingaverage.jl")
+include("smoothers/loess.jl")
+include("smoothers/seasonal.jl")
+include("smoothers/derivative.jl")
 
 include("classical/grid.jl")
-include("classical/trends.jl")
 include("classical/x11.jl")
 include("classical/stl.jl")
 include("classical/classical.jl")
 
 export fit, predict, fitted, residuals
 export AbstractDecomp, Component, GPDecomp, X11Decomp, STLDecomp
-export AbstractFilter, AbstractTrendFilter, AbstractSeasonalFilter
-export LocalPolynomialFilter, MovingAverage
-export AbstractSmoother, LoessSmoother
-export AbstractTrendSpec, LocalPolynomialTrend, LoessTrend, NearestNeighbours
-export StableSeasonalFilter, SeasonalMovingAverage
+export AbstractSmoother, AbstractTrendSmoother, AbstractSeasonalSmoother, FittedSmoother
+export LocalPolynomial, Henderson, MovingAverage, LOESS
+export SeasonalMovingAverage, StableSeasonal
 export AbstractEndpoints, NoEndpoints, DirectAsymmetric, MinimumRevision
 export musgrave, musgrave_ic_ratio
-export AbstractFilterKernel, HendersonKernel, BiweightKernel, TricubeKernel
+export AbstractSmootherKernel, HendersonKernel, BiweightKernel, TricubeKernel
 export EpanechnikovKernel, UniformKernel, kernel_weights
 
 Base.@deprecate_binding Decomposition GPDecomp

@@ -7,7 +7,7 @@ with_logger(ConsoleLogger(stderr, Logging.Warn)) do
     @testset "GPDecompositions" begin
         include("test_api.jl")
         include("test_decompose.jl")
-        include("test_filters.jl")
+        include("test_smoothers.jl")
         include("test_classical.jl")
     end
 end
