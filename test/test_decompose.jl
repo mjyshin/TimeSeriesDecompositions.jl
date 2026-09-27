@@ -50,3 +50,52 @@ end
 
     @test mean(abs.(reconstructed .- y)) < 0.5
 end
+
+@testset "lengthscale ordering" begin
+    Random.seed!(1)
+    N = 120
+    t = collect(1.0:Float64(N))
+    trend_true = 0.03 .* t .+ 0.8 .* sin.(2π .* t ./ 200)
+    envelope = 1 .+ 0.5 .* sin.(2π .* t ./ 80)
+    y = trend_true .+ envelope .* 1.5 .* sin.(2π .* t ./ 12) .+ 0.2 .* randn(N)
+
+    for bandwidth in (36.0, Inf)
+        d = fit(GPDecomp, y, t; period=12.0, bandwidth)
+        @test d.θ.l_trend > (isfinite(bandwidth) ? bandwidth : 12.0)
+        @test sqrt(mean(abs2, d.trend.mean .- trend_true)) < 0.25
+        # the zero-mean seasonal kernel leaves the level to the trend
+        @test abs(mean(d.seasonal.mean)) < 0.1
+    end
+
+    # an infeasible starting value is moved above the bound
+    d = @test_logs (:info,) match_mode = :any fit(
+        GPDecomp, y, t; period=12.0, bandwidth=36.0, θ_init=(l_trend=5.0,)
+    )
+    @test d.θ.l_trend > 36.0
+
+    @test_throws ArgumentError fit(
+        GPDecomp,
+        y,
+        t;
+        period=12.0,
+        bandwidth=36.0,
+        θ_init=(l_trend=10.0,),
+        θ_fixed=[:l_trend],
+    )
+    @test_throws DomainError fit(GPDecomp, y, t; period=12.0, bandwidth=6.0)
+
+    # without seasonality l_trend is unbounded
+    d = fit(GPDecomp, y, t; θ_init=(l_trend=0.5,))
+    @test d.θ.l_trend > 0
+end
+
+@testset "l_seasonal validation" begin
+    t = collect(1.0:48.0)
+    y = sin.(2π .* t ./ 12) .+ 0.1 .* randn(48)
+    @test_throws ArgumentError fit(GPDecomp, y, t; period=12.0, θ_init=(l_seasonal=Inf,))
+    @test_throws ArgumentError fit(
+        GPDecomp, y, t; period=12.0, θ_init=(l_seasonal=50.0,), θ_fixed=[:l_seasonal]
+    )
+    d = fit(GPDecomp, y, t; period=12.0)
+    @test 0 < d.θ.l_seasonal <= 10
+end

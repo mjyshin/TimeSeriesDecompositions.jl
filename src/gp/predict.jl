@@ -7,8 +7,7 @@ function _component_estimate(
     s_y::Float64,
     add_mean::Bool,
 )
-    jitter = 1e-12
-    fg = post(GPPPInput(key, t), jitter)
+    fg = post(GPPPInput(key, t), 1e-12)
     μ_std = mean(fg)
     σ_std = sqrt.(max.(0.0, var(fg)))
 
@@ -81,6 +80,7 @@ function _build_decomposition(
     s_y::Float64;
     sig::AbstractVector{Float64},
     approx_rate::Bool,
+    fit_info::NamedTuple,
 )
     sig = sort(unique(sig))
     has_seasonal = isfinite(params.period)
@@ -93,7 +93,7 @@ function _build_decomposition(
     _rate_estimate = approx_rate ? _approx_rate : _full_rate
     rate = _rate_estimate(post, t_out, sig, s_y)
 
-    fi = (ȳ=ȳ, s_y=s_y, approx_rate=approx_rate)
+    fi = (; ȳ, s_y, approx_rate, fit=fit_info)
     return GPDecomp(t_out, trend, seasonal, noise, rate, sig, params, post, fi)
 end
 
@@ -114,5 +114,6 @@ function predict(
         fi.s_y;
         sig=Float64.(sig),
         approx_rate=fi.approx_rate,
+        fit_info=fi.fit,
     )
 end

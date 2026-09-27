@@ -45,3 +45,25 @@ function _subset(c::Component, idx)
     )
 end
 _subset(::Nothing, idx) = nothing
+
+# Shared display helpers so that all decompositions print alike
+_fmt(x::AbstractFloat) = isfinite(x) ? string(round(x; sigdigits=4)) : string(x)
+_fmt(x) = string(x)
+
+function _show_header(io::IO, d::AbstractDecomp)
+    t1, tN = extrema(d.t)
+    return print(io, "$(nameof(typeof(d))){N=$(length(d.t)), t∈[$t1, $tN]}")
+end
+
+Base.show(io::IO, d::AbstractDecomp) = _show_header(io, d)
+
+_show_line(io::IO, label, value) = print(io, "\n  ", rpad(label, 11), ": ", value)
+
+function _show_section(io::IO, label, rows)
+    isempty(rows) && return nothing
+    print(io, "\n  ", rpad(label, 11), ":")
+    for (name, value) in rows
+        print(io, "\n    ", rpad(string(name), 21), _fmt(value))
+    end
+    return nothing
+end

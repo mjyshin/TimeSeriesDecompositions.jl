@@ -9,10 +9,51 @@ function _merge_kernels(k::Union{Nothing,NamedTuple})
     return merge(_default_kernels, k)
 end
 
+# Periodic kernel with its constant Fourier coefficient a₀ removed and rescaled to unit
+# variance, k̃ = (k - a₀) / (1 - a₀). Without this, the envelope turns σ²a₀ of the
+# seasonal variance into a second smooth trend GP of lengthscale `bandwidth`, which
+# competes with the trend. Dropping a non-negative Fourier coefficient keeps k̃ positive
+# semi-definite.
+struct _ZeroMeanKernel{K<:Kernel,T<:Real} <: Kernel
+    kernel::K
+    a₀::T
+end
+
+(k::_ZeroMeanKernel)(x, y) = (k.kernel(x, y) - k.a₀) / (1 - k.a₀)
+
+_zero_mean(k::_ZeroMeanKernel, K) = (K .- k.a₀) ./ (1 - k.a₀)
+
+function KernelFunctions.kernelmatrix(k::_ZeroMeanKernel, x::AbstractVector)
+    return _zero_mean(k, kernelmatrix(k.kernel, x))
+end
+function KernelFunctions.kernelmatrix(
+    k::_ZeroMeanKernel, x::AbstractVector, y::AbstractVector
+)
+    return _zero_mean(k, kernelmatrix(k.kernel, x, y))
+end
+function KernelFunctions.kernelmatrix_diag(k::_ZeroMeanKernel, x::AbstractVector)
+    return _zero_mean(k, kernelmatrix_diag(k.kernel, x))
+end
+function KernelFunctions.kernelmatrix_diag(
+    k::_ZeroMeanKernel, x::AbstractVector, y::AbstractVector
+)
+    return _zero_mean(k, kernelmatrix_diag(k.kernel, x, y))
+end
+
+# a₀ is the mean of k(0, u) over one period, by the trapezoid rule, which works for any
+# base kernel. Aliasing makes it overestimate a₀ (breaking positive semi-definiteness),
+# spectrally little for smooth kernels but O(1/n²) for Matérn-1/2, hence the large n.
+function _zero_mean_periodic(k_per::Kernel, period::Real; n::Int=1024)
+    u = collect(range(0.0, period; length=n + 1)[1:n])
+    a₀ = mean(kernelmatrix(k_per, [0.0], u))
+    return _ZeroMeanKernel(k_per, a₀)
+end
+
 function _seasonal_kernel(
     l_seasonal::Real, period::Real, bandwidth::Real, k_seasonal, k_bandwidth
 )
     k_per = with_lengthscale(k_seasonal, l_seasonal) ∘ PeriodicTransform(1 / period)
+    k_per = _zero_mean_periodic(k_per, period)
     isfinite(bandwidth) || return k_per
     return k_per * with_lengthscale(k_bandwidth, bandwidth)
 end

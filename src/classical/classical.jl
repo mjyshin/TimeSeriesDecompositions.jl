@@ -18,22 +18,11 @@ function predict(d::_FilterDecomp, t_new::AbstractVector{<:Real}=d.t)
     )
 end
 
-function Base.show(io::IO, d::_FilterDecomp)
-    N = length(d.t)
-    t1, tN = extrema(d.t)
-    println(io, "$(nameof(typeof(d))){N=$N, t∈[$t1, $tN]}")
-    println(io, "  components : trend, seasonal, noise, rate (point estimates)")
-    println(io, "  period     : $(d.θ.period)")
-    print(io, "  filters    :")
-    for (name, f) in pairs(d.θ.filters)
-        print(io, "\n    ", rpad(string(name), 21), repr(f))
-    end
-    isempty(d.θ.estimated) && return nothing
-    print(io, "\n  estimated  :")
-    for (name, value) in pairs(d.θ.estimated)
-        print(io, "\n    ", rpad(string(name), 21), value)
-    end
+function Base.show(io::IO, ::MIME"text/plain", d::_FilterDecomp)
+    _show_header(io, d)
+    _show_line(io, "components", "trend, seasonal, noise, rate (point estimates)")
+    _show_line(io, "period", _fmt(d.θ.period))
+    _show_section(io, "filters", pairs(d.θ.filters))
+    _show_section(io, "estimated", pairs(d.θ.estimated))
     return nothing
 end
-
-Base.show(io::IO, ::MIME"text/plain", d::_FilterDecomp) = show(io, d)

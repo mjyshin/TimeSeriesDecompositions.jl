@@ -166,16 +166,21 @@ end
     @test isnothing(d2.seasonal)
 end
 
-@testset "show method does not error" begin
-    d = fit(GPDecomp, _y, _t; period=12.0)
-    io = IOBuffer()
-    @test (show(io, d); true)
-end
+@testset "show" begin
+    d = fit(GPDecomp, _y, _t; period=12.0, bandwidth=30.0, θ_fixed=[:σ_noise])
+    @test sprint(show, d) == "GPDecomp{N=50, t∈[1.0, 50.0]}"
+    s = sprint(show, MIME"text/plain"(), d)
+    for label in ("kernels", "estimated", "fixed", "fit", "envelope", "l_trend")
+        @test occursin(label, s)
+    end
+    @test occursin(r"σ_noise\s+\S", s[findfirst("fixed", s)[end]:end])
 
-@testset "show method no seasonal" begin
-    d = fit(GPDecomp, _y, _t)
-    io = IOBuffer()
-    @test (show(io, d); true)
+    d = fit(GPDecomp, _y, _t; approx_rate=true)
+    s = sprint(show, MIME"text/plain"(), d)
+    @test occursin("period     : none", s)
+    @test occursin("approx_rate", s)
+    @test !occursin("σ_seasonal", s)
+    @test sprint(show, MIME"text/plain"(), predict(d, 1.0:3.0)) isa String
 end
 
 @testset "deprecated Decomposition alias" begin
