@@ -1,4 +1,5 @@
 using GPDecompositions
+using DelimitedFiles
 using LinearAlgebra: dot
 using Logging
 using Random
@@ -253,10 +254,127 @@ end
     @test_throws DomainError fit(StableSeasonalFilter, s; period=1)
 end
 
-@testset "LoessFilter" begin
-    f = fit(LoessFilter, _y; window=25)
-    x = predict(f, _y)
-    @test length(x) == 120
-    @test all(isfinite, x)
-    @test_throws DomainError fit(LoessFilter, _y; window=25, degree=3)
+# Direct weighted least-squares loess with bandwidth λ at x, for reference
+function loess_reference(t, y, λ, degree, x; wts=ones(length(t)))
+    w = wts .* (1 .- min.(abs.(t .- x) ./ λ, 1) .^ 3) .^ 3
+    U = [((tᵢ - x) / λ)^k for tᵢ in t, k in 0:degree]
+    return ((U' * (w .* U)) \ (U' * (w .* y)))[1]
+end
+
+@testset "LoessSmoother matches R loess (surface = \"direct\")" begin
+    data = readdlm(joinpath(@__DIR__, "data", "loess_r_data.txt"))
+    fits = readdlm(joinpath(@__DIR__, "data", "loess_r_fits.txt"))
+    t, y, w = data[:, 1], data[:, 2], data[:, 3]
+    tn = range(minimum(t), maximum(t); length=17)
+    for row in eachrow(fits)
+        weighted, degree, span, enp = row[1] == 1, Int(row[2]), row[3], row[4]
+        wts = weighted ? w : ones(50)
+        s = fit(LoessSmoother, y, t; span, degree, wts)
+        @test predict(s, tn) ≈ row[5:21] atol = 1e-10
+        @test predict(s) ≈ row[22:71] atol = 1e-10
+        L = GPDecompositions._hat_matrix(s.t, s.wts, span, 0.0, degree)
+        @test sum(L[i, i] for i in 1:50) ≈ enp atol = 1e-10
+    end
+end
+
+@testset "LoessSmoother bandwidth and weights" begin
+    t = sort(rand(60) .* 20)
+    y = sin.(t) .+ 0.2randn(60)
+    tn = range(t[1], t[end]; length=13)
+    s = fit(LoessSmoother, y, t; bandwidth=3.0, degree=1)
+    @test predict(s, tn) ≈ [loess_reference(t, y, 3.0, 1, x) for x in tn]
+    # The larger of the span and fixed bandwidths
+    both = fit(LoessSmoother, y, t; span=0.1, bandwidth=2.0, degree=2)
+    q = GPDecompositions._span_neighbours(0.1, 60)
+    λ(x) = max(2.0, sort(abs.(t .- x))[q])
+    @test predict(both, tn) ≈ [loess_reference(t, y, λ(x), 2, x) for x in tn]
+    # Span above one: √α times the distance to the farthest observation, as in R
+    wide = fit(LoessSmoother, y, t; span=2.0, bandwidth=1.0, degree=1)
+    λwide(x) = max(1.0, √2 * maximum(abs.(t .- x)))
+    @test predict(wide, tn) ≈ [loess_reference(t, y, λwide(x), 1, x) for x in tn]
+    @test_throws ArgumentError fit(
+        LoessSmoother, [1.0, 2, 3, 4], [0, 1, 10, 11]; bandwidth=2
+    )
+
+    wts = rand(60)
+    s = fit(LoessSmoother, y, t; span=0.3, degree=1, wts)
+    x = t[20]
+    λq = sort(abs.(t .- x))[GPDecompositions._span_neighbours(0.3, 60)]
+    @test predict(s, [x]) ≈ [loess_reference(t, y, λq, 1, x; wts)]
+end
+
+@testset "LoessSmoother on a grid equals the tricube LocalPolynomialFilter" begin
+    for degree in 1:2, q in (9, 15, 21)
+        s = fit(LoessSmoother, _y; span=q / 120, degree)
+        f = fit(
+            LocalPolynomialFilter,
+            _y;
+            window=q - 2,
+            degree,
+            kernel=TricubeKernel(),
+            endpoints=NoEndpoints(),
+        )
+        inner = ((q + 1) ÷ 2):(120 - (q - 1) ÷ 2)    # symmetric neighbourhoods
+        @test predict(s)[inner] ≈ predict(f, _y)[inner] atol = 1e-12
+    end
+end
+
+@testset "LoessSmoother interpolation and reproduction" begin
+    t = sort(rand(40) .* 10)
+    tn = sort(rand(25) .* (t[end] - t[1]) .+ t[1])
+    for degree in 0:2
+        p(x) = evalpoly(x, [1.0, -0.5, 0.2][1:(degree + 1)])
+        for kwargs in ((; span=0.25), (; bandwidth=2.5), (; span=0.25, bandwidth=1.0))
+            s = fit(LoessSmoother, p.(t), t; degree, kwargs...)
+            @test predict(s, tn) ≈ p.(tn)
+            @test predict(s) ≈ p.(s.t)
+        end
+    end
+    s = fit(LoessSmoother, _y; span=0.15)
+    @test predict(s, s.t) == predict(s)
+    @test fitted(s) == predict(s)
+    @test residuals(s) ≈ s.y - predict(s)
+    @test_throws DomainError predict(s, [0.0])
+    @test length(predict(s, [0.0, 121.0]; extrapolate=true)) == 2
+    perm = shuffle(1:120)    # unsorted input is sorted by t
+    @test predict(fit(LoessSmoother, _y[perm], perm; span=0.15)) ≈ predict(s)
+end
+
+@testset "LoessSmoother validation" begin
+    @test_throws DomainError fit(LoessSmoother, _y; span=0)
+    @test_throws DomainError fit(LoessSmoother, _y; bandwidth=-1)
+    @test_throws ArgumentError fit(LoessSmoother, _y; span=0.02)    # q < degree + 2
+    @test_throws DomainError fit(LoessSmoother, _y; span=0.5, degree=3)
+    @test_throws ArgumentError fit(LoessSmoother, _y; span=0.5, wts=(-ones(120)))
+    @test_throws DimensionMismatch fit(LoessSmoother, _y, 1:10; span=0.5)
+    @test_throws ArgumentError fit(
+        LoessSmoother, [1.0, 2.0, 3.0, 4.0], [1, 1, 1, 2]; span=0.75, degree=1
+    )    # three observations tied at t = 1
+end
+
+@testset "LoessSmoother span selection (AICc)" begin
+    logs, s = Test.collect_test_logs(() -> fit(LoessSmoother, _y))
+    @test length(logs) == 1
+    @test logs[1].group === :estimated
+    @test s.estimated.span == s.span
+    @test haskey(s.estimated, :enp) && haskey(s.estimated, :aicc)
+    @test_logs min_level = Logging.Info fit(LoessSmoother, _y; span=0.3)
+    @test_logs min_level = Logging.Info fit(LoessSmoother, _y; bandwidth=5)
+
+    # Spans too small for tied times are skipped rather than failing
+    for replicates in (3, 5)
+        tied = repeat(1.0:50; inner=replicates)
+        s = fit(LoessSmoother, sin.(tied ./ 5) .+ 0.1randn(length(tied)), tied)
+        @test isfinite(s.estimated.aicc)
+    end
+
+    # Warns about autocorrelated errors, but not for independent ones
+    rng = Xoshiro(11)
+    ar = zeros(500)
+    for i in 2:500
+        ar[i] = 0.5ar[i - 1] + randn(rng)
+    end
+    @test_logs (:warn, r"autocorrelated") match_mode = :any fit(LoessSmoother, ar)
+    iid = [sin(2π * i / 100) for i in 1:500] .+ randn(rng, 500)
+    @test_logs min_level = Logging.Warn fit(LoessSmoother, iid)
 end

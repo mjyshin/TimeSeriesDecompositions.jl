@@ -2,7 +2,7 @@
 
 julia_version = "1.13.0"
 manifest_format = "2.1"
-project_hash = "37466acce0d08023d3bfe30ff0ba2c1b562f20aa"
+project_hash = "640c774ab6f9d099469e174a3d9de0a648a28670"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -428,7 +428,7 @@ uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 version = "1.11.0"
 
 [[deps.GPDecompositions]]
-deps = ["AbstractGPs", "Distributions", "ForwardDiff", "Interpolations", "KernelFunctions", "LinearAlgebra", "Loess", "Optim", "ParameterHandling", "ProgressMeter", "Reexport", "Statistics", "StatsAPI", "Stheno", "Zygote"]
+deps = ["AbstractGPs", "Distributions", "ForwardDiff", "Interpolations", "KernelFunctions", "LinearAlgebra", "Optim", "ParameterHandling", "ProgressMeter", "Reexport", "SparseArrays", "Statistics", "StatsAPI", "Stheno", "Zygote"]
 path = "."
 uuid = "29adc1aa-f14c-4657-8706-c5e2d354a969"
 version = "0.2.0"
@@ -543,13 +543,6 @@ version = "7.8.2"
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 version = "1.13.0"
-
-[[deps.Loess]]
-deps = ["Distances", "LinearAlgebra", "Statistics", "StatsAPI", "StatsFuns"]
-git-tree-sha1 = "aac61f60ed2b1561ae1bbef4e6d7b75c27f1f9e3"
-registries = "General"
-uuid = "4345ca2d-374a-55d4-8d30-97f9976e7612"
-version = "0.6.6"
 
 [[deps.LogExpFunctions]]
 deps = ["DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]

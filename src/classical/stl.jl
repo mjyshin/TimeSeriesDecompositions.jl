@@ -28,9 +28,9 @@ Loess-based seasonal-trend decomposition of `y` observed at uniformly spaced tim
 
 # Keyword arguments
 - `period`: seasonal period in units of `t` (required); `period / Δt` must be an integer.
-- `trend_window`: odd number of observations spanned by the local-quadratic loess trend
-  (STL uses local-linear). Defaults to Cleveland et al.'s rule
-  `n_t ≥ 1.5 n_p / (1 - 1.5 / n_s)` with the smallest seasonal window `n_s = 7`.
+- `trend_window`: number of nearest observations in the local-linear loess trend.
+  Defaults to Cleveland et al.'s rule `n_t ≥ 1.5 n_p / (1 - 1.5 / n_s)` with the smallest
+  seasonal window `n_s = 7`.
 
 Hyperparameters chosen from the data are reported with an `@info` message and stored in
 `d.θ.estimated`. The rate is the derivative of the trend per unit of `t`.
@@ -55,8 +55,8 @@ function fit(
     seasonal_filter = fit(StableSeasonalFilter, detrended; period=p)
     seasonal = predict(seasonal_filter, detrended)
     adjusted = y - seasonal
-    trend_filter = fit(LoessFilter, adjusted; window)
-    trend = predict(trend_filter, adjusted)
+    trend_filter = _fit(LoessSmoother, adjusted, t; span=window / length(y), degree=1)
+    trend = predict(trend_filter)
 
     _log_estimated(STLDecomp, estimated)
     filters = (; initial_trend, seasonal=seasonal_filter, trend=trend_filter)

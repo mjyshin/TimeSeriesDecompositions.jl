@@ -42,12 +42,15 @@ end
     @test_throws ArgumentError predict(d, [_tc[1] + 1/24])
 end
 
+window_kwargs(::Type{X11Decomp}, window) = (; trend=LocalPolynomialTrend(; window))
+window_kwargs(::Type{STLDecomp}, window) = (; trend_window=window)
+
 @testset "$D input validation" for D in (X11Decomp, STLDecomp)
     nonuniform = [_tc[1:(end - 1)]; _tc[end] + 1]
     @test_throws ArgumentError fit(D, _yc, nonuniform; period=1.0)
     @test_throws ArgumentError fit(D, _yc, _tc; period=0.1)    # non-integer p
     @test_throws DomainError fit(D, _yc, _tc; period=-1.0)
-    @test_throws ArgumentError fit(D, _yc, _tc; period=1.0, trend_window=12)
+    @test_throws ArgumentError fit(D, _yc, _tc; period=1.0, window_kwargs(D, 12)...)
     @test_throws ArgumentError fit(D, _yc[1:20], _tc[1:20]; period=1.0)
     @test_throws DimensionMismatch fit(D, _yc, _tc[1:(end - 1)]; period=1.0)
 end
@@ -63,20 +66,32 @@ end
     @test d.θ.estimated.ratio == f.endpoints.ratio
     @test haskey(d.θ.estimated, :msr)
     @test d.θ.filters.seasonal isa Union{SeasonalMovingAverage,StableSeasonalFilter}
-    m = fit(X11Decomp, _yc, _tc; period=1.0, endpoints=musgrave(3.5))
+    musgrave_trend = LocalPolynomialTrend(; window=13, endpoints=musgrave(3.5))
+    m = fit(X11Decomp, _yc, _tc; period=1.0, trend=musgrave_trend)
     @test m.θ.filters.trend.endpoints.ratio ≈ 4 / (π * 3.5^2)
     @test m.trend.mean != d.trend.mean
-    @test fit(X11Decomp, _yc, _tc; period=1.0, trend_window=23).θ.filters.trend.window == 23
+    h23 = fit(X11Decomp, _yc, _tc; period=1.0, trend=LocalPolynomialTrend(; window=23))
+    @test h23.θ.filters.trend.window == 23
     s = fit(X11Decomp, _yc, _tc; period=1.0, seasonal_filter=StableSeasonalFilter)
     @test s.θ.filters.seasonal isa StableSeasonalFilter
     @test !haskey(s.θ.estimated, :msr)
-    dh = fit(X11Decomp, _yc, _tc; period=1.0, endpoints=NoEndpoints())
+    dh = fit(
+        X11Decomp,
+        _yc,
+        _tc;
+        period=1.0,
+        trend=LocalPolynomialTrend(; endpoints=NoEndpoints()),
+    )
     @test all(isfinite, dh.trend.mean[7:(end - 6)])
     @test all(isnan, dh.trend.mean[[1:6; (end - 5):end]])
     @test all(isfinite, dh.rate.mean[7:(end - 6)])
     @test_throws ArgumentError fit(X11Decomp, _yc, _tc; period=1.0, seasonal_filter=(3, 2))
     @test_throws ArgumentError fit(
-        X11Decomp, _yc, _tc; period=1.0, preliminary_endpoints=NoEndpoints()
+        X11Decomp,
+        _yc,
+        _tc;
+        period=1.0,
+        preliminary_trend=LocalPolynomialTrend(; endpoints=NoEndpoints()),
     )
 end
 
@@ -115,14 +130,16 @@ end
     @test haskey(d.θ.estimated, :msr_note)
 end
 
-@testset "X11Decomp reproduces linear trend plus fixed seasonal" begin
+@testset "X11Decomp reproduces linear trend plus fixed seasonal ($trend)" for trend in (
+    LocalPolynomialTrend(), LoessTrend(), LoessTrend(; endpoints=NearestNeighbours())
+)
     for p in (2, 3, 4, 7, 12), N in (12p, 12p + 5, 3p + p ÷ 2 + 1)
         s = randn(p)
         s .-= sum(s) / p
         seasonal = [s[mod1(t, p)] for t in 1:N]
-        trend = [2 + 0.3t for t in 1:N]
-        d = fit(X11Decomp, trend + seasonal; period=p)
-        @test maximum(abs, d.trend.mean - trend) < 1e-10
+        linear = [2 + 0.3t for t in 1:N]
+        d = fit(X11Decomp, linear + seasonal; period=p, trend)
+        @test maximum(abs, d.trend.mean - linear) < 1e-10
         @test maximum(abs, d.seasonal.mean - seasonal) < 1e-10
         @test maximum(abs, d.noise.mean) < 1e-10
         @test maximum(abs, d.rate.mean .- 0.3) < 1e-10
@@ -130,7 +147,8 @@ end
 end
 
 @testset "X11Decomp reports an estimated preliminary ratio" begin
-    d = fit(X11Decomp, _yc, _tc; period=1.0, preliminary_endpoints=MinimumRevision())
+    preliminary_trend = LocalPolynomialTrend(; endpoints=MinimumRevision())
+    d = fit(X11Decomp, _yc, _tc; period=1.0, preliminary_trend)
     @test d.θ.estimated.preliminary_ratio == d.θ.filters.preliminary_trend.endpoints.ratio
     @test haskey(d.θ.estimated, :preliminary_msre)
 end
@@ -153,15 +171,43 @@ end
         _yc,
         _tc;
         period=1.0,
-        trend_window=13,
-        endpoints=musgrave(3.5),
+        trend=LocalPolynomialTrend(; window=13, endpoints=musgrave(3.5)),
         seasonal_filter=(3, 5),
+    )
+end
+
+@testset "X11Decomp with a loess trend" begin
+    for (p, window) in ((4, 7), (7, 11), (12, 15))
+        d = fit(X11Decomp, randn(10p); period=p, trend=LoessTrend())
+        @test d.θ.estimated.trend_window == window
+        f = d.θ.filters.trend    # computed as the equivalent tricube filter of length q - 2
+        @test f isa LocalPolynomialFilter{TricubeKernel}
+        @test f.window == window - 2
+        @test f.degree == 2
+    end
+    d = fit(
+        X11Decomp, _yc, _tc; period=1.0, trend=LoessTrend(; endpoints=NearestNeighbours())
+    )
+    @test d.θ.filters.trend isa LoessSmoother
+    @test d.θ.filters.preliminary_trend isa LoessSmoother
+    @test d.θ.filters.trend.span ≈ 15 / 120
+    @test_throws ArgumentError fit(
+        X11Decomp, _yc, _tc; period=1.0, trend=LoessTrend(; window=14)
+    )
+    @test_throws ArgumentError fit(
+        X11Decomp,
+        _yc,
+        _tc;
+        period=1.0,
+        trend=LocalPolynomialTrend(; endpoints=NearestNeighbours()),
     )
 end
 
 @testset "STLDecomp default trend_window" begin
     d = fit(STLDecomp, _yc, _tc; period=1.0)
-    @test d.θ.estimated.trend_window == d.θ.filters.trend.window
-    @test isodd(d.θ.filters.trend.window)
-    @test d.θ.filters.trend.window ≥ 1.5 * 12 / (1 - 1.5 / 7)
+    window = d.θ.estimated.trend_window
+    @test isodd(window)
+    @test window ≥ 1.5 * 12 / (1 - 1.5 / 7)
+    @test d.θ.filters.trend.span ≈ window / 120
+    @test d.θ.filters.trend.degree == 1
 end

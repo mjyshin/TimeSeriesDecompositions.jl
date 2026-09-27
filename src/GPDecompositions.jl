@@ -4,11 +4,11 @@ using AbstractGPs
 using Distributions
 using ForwardDiff
 using Interpolations: Interpolations, cubic_spline_interpolation
-using LinearAlgebra: I, diag, dot
-using Loess: Loess
+using LinearAlgebra: I, diag, dot, tr
 using Optim
 using ParameterHandling
 using Reexport
+using SparseArrays: sparse, spdiagm
 using Statistics
 using StatsAPI
 using Stheno
@@ -17,7 +17,7 @@ using Zygote
 @reexport using KernelFunctions
 
 import AbstractGPs: mean, cov, var
-import StatsAPI: fit, predict
+import StatsAPI: fit, predict, fitted, residuals
 using AbstractGPs: AbstractGP, PosteriorGP
 using KernelFunctions: kernelmatrix
 using ParameterHandling: positive, fixed
@@ -41,14 +41,17 @@ include("filters/seasonal.jl")
 include("filters/derivative.jl")
 
 include("classical/grid.jl")
+include("classical/trends.jl")
 include("classical/x11.jl")
 include("classical/stl.jl")
 include("classical/classical.jl")
 
-export fit, predict
+export fit, predict, fitted, residuals
 export AbstractDecomp, Component, GPDecomp, X11Decomp, STLDecomp
 export AbstractFilter, AbstractTrendFilter, AbstractSeasonalFilter
-export LocalPolynomialFilter, MovingAverage, LoessFilter
+export LocalPolynomialFilter, MovingAverage
+export AbstractSmoother, LoessSmoother
+export AbstractTrendSpec, LocalPolynomialTrend, LoessTrend, NearestNeighbours
 export StableSeasonalFilter, SeasonalMovingAverage
 export AbstractEndpoints, NoEndpoints, DirectAsymmetric, MinimumRevision
 export musgrave, musgrave_ic_ratio

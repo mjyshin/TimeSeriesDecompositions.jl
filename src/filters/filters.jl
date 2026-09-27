@@ -14,8 +14,8 @@ abstract type AbstractFilter end
 """
     AbstractTrendFilter <: AbstractFilter
 
-Filters that extract a smooth trend: [`LocalPolynomialFilter`](@ref),
-[`MovingAverage`](@ref) and [`LoessFilter`](@ref).
+Filters that extract a smooth trend: [`LocalPolynomialFilter`](@ref) and
+[`MovingAverage`](@ref). See also [`LoessSmoother`](@ref) for irregular times.
 """
 abstract type AbstractTrendFilter <: AbstractFilter end
 
