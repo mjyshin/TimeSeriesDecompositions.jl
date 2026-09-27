@@ -1,51 +1,85 @@
-#########################################
-###                                     #
-##    SEASONAL FILTERING ALGORITHMS    ##
-#                                     ###
-#########################################
-
-#== Stable seasonal filter (SSF) ==#
-
-τ(t::Int, T::Int) = mod(t-1, T) + 1    # clock function
-
 """
-    ssf(ỹ::Vector{<:Real}, T::Int; kwargs...)
+    StableSeasonalFilter <: AbstractSeasonalFilter
 
-Apply the stable seasonal filter (SSF) to the detrended time series (ỹₜ).
+Stable (fixed) seasonal pattern: each point is replaced by the mean of all observations
+at the same phase of the cycle of `period` samples.
+
+Create with `fit(StableSeasonalFilter, y; period)`.
 """
-function ssf(ỹ::Vector{<:Real}, T::Int; kwargs...)
-    @assert T ≥ 1
-    # No filtering case
-    if T == 1 return ỹ end
-
-    N = length(ỹ)
-    ȳ = [mean(filter(!isnan, ỹ[τ:T:N])) for τ ∈ 1:T]    # average over every τ(t) ∈ {1, ..., T}
-    x̃ = ȳ[τ.(1:N, T)]    # extend to t = 1, ..., N
-
-    return x̃
+struct StableSeasonalFilter <: AbstractSeasonalFilter
+    period::Int
 end
 
+"""
+    SeasonalMovingAverage <: AbstractSeasonalFilter
 
-#== S(n,m) seasonal filter ==#
+The `S(n × m)` seasonal filter of X-11: each cycle-subseries (the observations at one
+phase of the cycle of `period` samples) is smoothed by an `m`-term moving average and
+then an `n`-term moving average, truncated and renormalised at its ends.
+
+Create with `fit(SeasonalMovingAverage, y; period, n=3, m=5)`.
+"""
+struct SeasonalMovingAverage <: AbstractSeasonalFilter
+    period::Int
+    n::Int
+    m::Int
+end
 
 """
-    snm(ỹ::Vector{<:Real}, T::Int; n::Int=3, m::Int=5, kwargs...)
+    fit(StableSeasonalFilter, y; period) -> StableSeasonalFilter
+    fit(SeasonalMovingAverage, y; period, n=3, m=5) -> SeasonalMovingAverage
 
-Apply Sₙₓₘ, a.k.a. S(n, m), seasonal filter to the detrended time series (ỹₜ).
+Seasonal filter for cycles of `period` samples (no data-dependent hyperparameters; `y` is
+only validated).
 """
-function snm(ỹ::Vector{<:Real}, T::Int; n::Int=3, m::Int=5, kwargs...)
-    @assert T ≥ 1
-    # No filtering case
-    if T == 1 return ỹ end
+function fit(::Type{StableSeasonalFilter}, y::AbstractVector{<:Real}; period::Integer)
+    _check_series(y)
+    return StableSeasonalFilter(_check_period(period))
+end
 
-    N = length(ỹ)
-    x̃ = fill(NaN, N)
-    for τ ∈ 1:T
-        ỹ_τ = ỹ[τ:T:N]    # seasonal data at t s.t. τ(t) = τ
+function fit(
+    ::Type{SeasonalMovingAverage},
+    y::AbstractVector{<:Real};
+    period::Integer,
+    n::Integer=3,
+    m::Integer=5,
+)
+    _check_series(y)
+    n ≥ 1 && m ≥ 1 && isodd(n) && isodd(m) ||
+        throw(ArgumentError("S(n × m) needs odd, positive n and m, got ($n, $m)"))
+    return SeasonalMovingAverage(_check_period(period), Int(n), Int(m))
+end
 
-        ȳ_τ = sma(ỹ_τ, m)    # inner moving average
-        x̃[τ:T:N] = sma(ȳ_τ, n)    # outer moving average
+function _check_period(period::Integer)
+    period ≥ 2 || throw(DomainError(period, "period must be at least 2 samples"))
+    return Int(period)
+end
+
+function predict(f::StableSeasonalFilter, y::AbstractVector{<:Real})
+    y = _check_series(y)
+    x = similar(y)
+    for phase in 1:(f.period)
+        idx = phase:(f.period):length(y)
+        x[idx] .= mean(view(y, idx))
     end
+    return x
+end
 
-    return x̃
+function predict(f::SeasonalMovingAverage, y::AbstractVector{<:Real})
+    y = _check_series(y)
+    inner, outer = ones(f.m) ./ f.m, ones(f.n) ./ f.n
+    x = similar(y)
+    for phase in 1:(f.period)
+        idx = phase:(f.period):length(y)
+        x[idx] = _truncated_filter(outer, _truncated_filter(inner, view(y, idx)))
+    end
+    return x
+end
+
+function Base.show(io::IO, f::StableSeasonalFilter)
+    return print(io, "StableSeasonalFilter(period=$(f.period))")
+end
+
+function Base.show(io::IO, f::SeasonalMovingAverage)
+    return print(io, "SeasonalMovingAverage(period=$(f.period), n=$(f.n), m=$(f.m))")
 end

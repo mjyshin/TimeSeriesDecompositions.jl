@@ -9,10 +9,13 @@ function _nll(θ::NamedTuple, t_obs, y_obs::AbstractVector{<:Real}, kernels::Nam
 end
 
 function _optimize_params(
-    θ₀::NamedTuple, fix::AbstractVector{Symbol},
-    t_obs, y_obs::AbstractVector{<:Real};
+    θ₀::NamedTuple,
+    fix::AbstractVector{Symbol},
+    t_obs,
+    y_obs::AbstractVector{<:Real};
     kernels::NamedTuple=_default_kernels,
-    optimizer=_default_optimizer, max_iter::Int=1_000,
+    optimizer=_default_optimizer,
+    max_iter::Int=1_000,
 )
     wrapped = _init_params(θ₀, fix)
     θ₀_flat, unflatten = ParameterHandling.value_flatten(wrapped)
@@ -21,7 +24,7 @@ function _optimize_params(
     loss = x -> _nll(unflatten(x), t_obs, y_obs, kernels)
 
     function g!(G, x)
-        G .= only(Zygote.gradient(loss, x))
+        return G .= only(Zygote.gradient(loss, x))
     end
 
     options = Optim.Options(; iterations=max_iter, show_trace=false)
@@ -30,10 +33,11 @@ function _optimize_params(
 end
 
 function _fit_gp(
-    y::AbstractVector{<:Real}, t::AbstractVector{<:Real};
+    y::AbstractVector{<:Real},
+    t::AbstractVector{<:Real};
     period::Real=Inf,
     bandwidth::Real=Inf,
-    θ_init::Union{Nothing, NamedTuple}=nothing,
+    θ_init::Union{Nothing,NamedTuple}=nothing,
     θ_fixed::AbstractVector{Symbol}=Symbol[],
     kernels::NamedTuple=_default_kernels,
     optimizer=_default_optimizer,
@@ -48,7 +52,9 @@ function _fit_gp(
     θ0 = (θ0_base..., period=Float64(period_eff), bandwidth=Float64(bandwidth))
 
     t_obs = GPPPInput(:y, collect(Float64, t))
-    θ_opt = _optimize_params(θ0, θ_fixed, t_obs, Float64.(y_fit); kernels, optimizer, max_iter)
+    θ_opt = _optimize_params(
+        θ0, θ_fixed, t_obs, Float64.(y_fit); kernels, optimizer, max_iter
+    )
 
     gp = _build_gp(θ_opt, kernels)
     posterior_gp = posterior(gp(t_obs, 1e-12), Float64.(y_fit))
@@ -95,9 +101,9 @@ function fit(
     t::AbstractVector{<:Real}=eachindex(y);
     period::Union{Real,Nothing}=nothing,
     bandwidth::Union{Real,Nothing}=nothing,
-    kernel::Union{Nothing, NamedTuple}=nothing,
+    kernel::Union{Nothing,NamedTuple}=nothing,
     approx_rate::Bool=false,
-    θ_init::Union{Nothing, NamedTuple}=nothing,
+    θ_init::Union{Nothing,NamedTuple}=nothing,
     θ_fixed::AbstractVector{<:Union{Symbol,String}}=Symbol[],
     sig::AbstractVector{<:Real}=[0.5, 0.9],
     t_out::AbstractVector{<:Real}=t,
@@ -105,22 +111,38 @@ function fit(
     max_iter::Int=1_000,
 )
     # Explicit kwargs take precedence; θ_init fields override the default (Inf).
-    period_eff    = period    !== nothing ? Float64(period)    :
-                    (θ_init !== nothing && haskey(θ_init, :period))    ? Float64(θ_init.period)    : Inf
-    bandwidth_eff = bandwidth !== nothing ? Float64(bandwidth) :
-                    (θ_init !== nothing && haskey(θ_init, :bandwidth)) ? Float64(θ_init.bandwidth) : Inf
+    period_eff = if period !== nothing
+        Float64(period)
+    elseif (θ_init !== nothing && haskey(θ_init, :period))
+        Float64(θ_init.period)
+    else
+        Inf
+    end
+    bandwidth_eff = if bandwidth !== nothing
+        Float64(bandwidth)
+    elseif (θ_init !== nothing && haskey(θ_init, :bandwidth))
+        Float64(θ_init.bandwidth)
+    else
+        Inf
+    end
 
     length(y) == length(t) || throw(DimensionMismatch("y and t must have the same length"))
-    all(0 .< sig .< 1)     || throw(DomainError(sig, "sig levels must be in (0, 1)"))
-    isfinite(period_eff)    && period_eff    <= 0 && throw(DomainError(period_eff,    "period must be positive"))
-    isfinite(bandwidth_eff) && bandwidth_eff <= 0 && throw(DomainError(bandwidth_eff, "bandwidth must be positive"))
+    all(0 .< sig .< 1) || throw(DomainError(sig, "sig levels must be in (0, 1)"))
+    isfinite(period_eff) &&
+        period_eff <= 0 &&
+        throw(DomainError(period_eff, "period must be positive"))
+    isfinite(bandwidth_eff) &&
+        bandwidth_eff <= 0 &&
+        throw(DomainError(bandwidth_eff, "bandwidth must be positive"))
 
-    perm    = sortperm(t)
-    y_s     = Float64.(y[perm])
-    t_s     = Float64.(t[perm])
+    perm = sortperm(t)
+    y_s = Float64.(y[perm])
+    t_s = Float64.(t[perm])
     kernels = _merge_kernels(kernel)
 
-    result = _fit_gp(y_s, t_s;
+    result = _fit_gp(
+        y_s,
+        t_s;
         period=period_eff,
         bandwidth=bandwidth_eff,
         θ_init,
@@ -131,8 +153,12 @@ function fit(
     )
 
     return _build_decomposition(
-        result.posterior, Float64.(t_out), result.θ,
-        result.ȳ, result.s_y;
-        sig=Float64.(sig), approx_rate,
+        result.posterior,
+        Float64.(t_out),
+        result.θ,
+        result.ȳ,
+        result.s_y;
+        sig=Float64.(sig),
+        approx_rate,
     )
 end

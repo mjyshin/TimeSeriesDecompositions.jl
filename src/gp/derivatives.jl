@@ -1,6 +1,6 @@
 derivative(f::AbstractGP) = DerivedGP((derivative, f), f.gpc)
 
-const _DerivArgs = Tuple{typeof(derivative), AbstractGP}
+const _DerivArgs = Tuple{typeof(derivative),AbstractGP}
 
 function mean((_, _)::_DerivArgs, x::AbstractVector{<:Real})
     return zeros(length(x))
@@ -21,41 +21,28 @@ function cov((_, f)::_DerivArgs, x::AbstractVector{<:Real}, x′::AbstractVector
     # ∂²k/∂t∂t' via nested first-order ForwardDiff (avoids second-order dual issues)
     return [
         ForwardDiff.derivative(
-            tn -> ForwardDiff.derivative(t′n -> _kval(f, tn, t′n), t′n),
-            tn
-        )
-        for tn in x, t′n in x′
+            tn -> ForwardDiff.derivative(t′n -> _kval(f, tn, t′n), t′n), tn
+        ) for tn in x, t′n in x′
     ]
 end
 
 function var((_, f)::_DerivArgs, x::AbstractVector{<:Real}, x′::AbstractVector{<:Real})
     return [
         ForwardDiff.derivative(
-            tn -> ForwardDiff.derivative(t′n -> _kval(f, tn, t′n), t′n),
-            tn
-        )
-        for (tn, t′n) in zip(x, x′)
+            tn -> ForwardDiff.derivative(t′n -> _kval(f, tn, t′n), t′n), tn
+        ) for (tn, t′n) in zip(x, x′)
     ]
 end
 
 function cov(
-    (_, f)::_DerivArgs,
-    ::AbstractGP,
-    x::AbstractVector{<:Real},
-    x′::AbstractVector{<:Real},
+    (_, f)::_DerivArgs, ::AbstractGP, x::AbstractVector{<:Real}, x′::AbstractVector{<:Real}
 )
     # ∂k/∂t
-    return [
-        ForwardDiff.derivative(tn -> _kval(f, tn, t′n), tn)
-        for tn in x, t′n in x′
-    ]
+    return [ForwardDiff.derivative(tn -> _kval(f, tn, t′n), tn) for tn in x, t′n in x′]
 end
 
 function cov(
-    f′::AbstractGP,
-    args::_DerivArgs,
-    x::AbstractVector{<:Real},
-    x′::AbstractVector{<:Real},
+    f′::AbstractGP, args::_DerivArgs, x::AbstractVector{<:Real}, x′::AbstractVector{<:Real}
 )
     return collect(cov(args, f′, x′, x)')
 end

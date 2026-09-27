@@ -1,8 +1,8 @@
 struct GPDecomp <: AbstractDecomp
     t::Vector{Float64}
     trend::Component
-    seasonal::Union{Component, Nothing}
-    noise::Union{Component, Nothing}
+    seasonal::Union{Component,Nothing}
+    noise::Union{Component,Nothing}
     rate::Component
     sig::Vector{Float64}
     θ::NamedTuple
@@ -15,15 +15,22 @@ function Base.show(io::IO, d::GPDecomp)
     t1, tN = extrema(d.t)
     sig_str = join(round.(Int, 100 .* d.sig), "%, ") * "%"
     has_seasonal = !isnothing(d.seasonal)
-    has_noise    = !isnothing(d.noise)
+    has_noise = !isnothing(d.noise)
     θ = d.θ
-    comps = "trend" * (has_seasonal ? ", seasonal" : "") * (has_noise ? ", noise" : "") * ", rate"
+    comps =
+        "trend" *
+        (has_seasonal ? ", seasonal" : "") *
+        (has_noise ? ", noise" : "") *
+        ", rate"
     println(io, "GPDecomp{N=$N, t∈[$t1, $tN]}")
     println(io, "  components : $comps")
     println(io, "  CI levels  : $sig_str")
     if has_seasonal
         println(io, "  period     : $(round(θ.period; sigdigits=4))")
-        println(io, "  bandwidth  : $(isfinite(θ.bandwidth) ? round(θ.bandwidth; sigdigits=4) : "Inf (static)")")
+        println(
+            io,
+            "  bandwidth  : $(isfinite(θ.bandwidth) ? round(θ.bandwidth; sigdigits=4) : "Inf (static)")",
+        )
     end
     println(io, "  σ_trend    : $(round(θ.σ_trend; sigdigits=4))")
     println(io, "  l_trend    : $(round(θ.l_trend; sigdigits=4))")
@@ -37,5 +44,5 @@ function Base.show(io::IO, d::GPDecomp)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", d::GPDecomp)
-    show(io, d)
+    return show(io, d)
 end

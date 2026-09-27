@@ -15,7 +15,7 @@ end
     for comp in (d.trend, d.seasonal, d.noise)
         @test comp isa Component
         @test length(comp.mean) == 50
-        @test length(comp.std)  == 50
+        @test length(comp.std) == 50
         @test length(comp.lower) == length(comp.sig)
         @test length(comp.upper) == length(comp.sig)
         @test all(comp.std .≥ 0)
@@ -30,7 +30,7 @@ end
     @test d.noise isa Component
     @test d.θ.σ_seasonal == 0.0
     @test d.θ.l_seasonal == Inf
-    @test d.θ.bandwidth  == Inf
+    @test d.θ.bandwidth == Inf
 end
 
 @testset "no seasonal component (explicit Inf)" begin
@@ -123,15 +123,13 @@ end
     @test d.θ.bandwidth ≈ 30.0
 end
 
-
-
 @testset "σ_seasonal=0 disables seasonal" begin
     d = fit(GPDecomp, _y, _t; period=12.0, θ_init=(σ_seasonal=0.0,))
     @test isnothing(d.seasonal)
-    @test d.θ.period     == Inf
+    @test d.θ.period == Inf
     @test d.θ.σ_seasonal == 0.0
     @test d.θ.l_seasonal == Inf
-    @test d.θ.bandwidth  == Inf
+    @test d.θ.bandwidth == Inf
 end
 
 @testset "σ_noise=0 disables noise" begin
@@ -142,8 +140,13 @@ end
 end
 
 @testset "custom kernels" begin
-    d = fit(GPDecomp, _y, _t; period=12.0,
-        kernel=(trend=Matern52Kernel(), seasonal=Matern32Kernel()))
+    d = fit(
+        GPDecomp,
+        _y,
+        _t;
+        period=12.0,
+        kernel=(trend=Matern52Kernel(), seasonal=Matern32Kernel()),
+    )
     @test d isa GPDecomp
     @test d.trend isa Component
     @test !isnothing(d.seasonal)
@@ -152,7 +155,7 @@ end
 @testset "θ from fit can be passed as θ_init" begin
     d1 = fit(GPDecomp, _y, _t; period=12.0, bandwidth=30.0)
     d2 = fit(GPDecomp, _y, _t; θ_init=d1.θ)
-    @test d2.θ.period    ≈ 12.0
+    @test d2.θ.period ≈ 12.0
     @test d2.θ.bandwidth ≈ 30.0
     @test !isnothing(d2.seasonal)
 end

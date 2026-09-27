@@ -16,10 +16,10 @@ function _component_estimate(
     σ = s_y .* σ_std
 
     z = map(sig) do p
-        quantile(Normal(), (1 + p) / 2)
+        return quantile(Normal(), (1 + p) / 2)
     end
-    lower = [μ .- ζ .* σ for ζ ∈ z]
-    upper = [μ .+ ζ .* σ for ζ ∈ z]
+    lower = [μ .- ζ .* σ for ζ in z]
+    upper = [μ .+ ζ .* σ for ζ in z]
 
     return Component(μ, σ, lower, upper, sig)
 end
@@ -35,10 +35,12 @@ function _approx_rate(
     μ_r = map(t) do ti
         μ_hi = mean(post(GPPPInput(:x̄, [ti + h]), 1e-12))[1]
         μ_lo = mean(post(GPPPInput(:x̄, [ti - h]), 1e-12))[1]
-        s_y * (μ_hi - μ_lo) / (2h)
+        return s_y * (μ_hi - μ_lo) / (2h)
     end
     nan_vec = fill(NaN, length(t))
-    return Component(μ_r, nan_vec, [copy(nan_vec) for _ in sig], [copy(nan_vec) for _ in sig], sig)
+    return Component(
+        μ_r, nan_vec, [copy(nan_vec) for _ in sig], [copy(nan_vec) for _ in sig], sig
+    )
 end
 
 # Derivative posterior via posterior covariance finite differences.
@@ -58,11 +60,11 @@ function _full_rate(
     μ_all = mean(fg)
     K = cov(fg)   # 2n × 2n
 
-    μ_r = s_y .* (μ_all[n+1:end] .- μ_all[1:n]) ./ (2h)
+    μ_r = s_y .* (μ_all[(n + 1):end] .- μ_all[1:n]) ./ (2h)
 
-    var_lo    = diag(K[1:n,     1:n    ])
-    var_hi    = diag(K[n+1:end, n+1:end])
-    cov_cross = diag(K[1:n,     n+1:end])
+    var_lo = diag(K[1:n, 1:n])
+    var_hi = diag(K[(n + 1):end, (n + 1):end])
+    cov_cross = diag(K[1:n, (n + 1):end])
     σ_r = s_y .* sqrt.(max.(0.0, var_lo .+ var_hi .- 2 .* cov_cross) ./ (4h^2))
 
     z = [quantile(Normal(), (1 + p) / 2) for p in sig]
@@ -83,13 +85,13 @@ function _build_decomposition(
     sig = sort(unique(sig))
     has_seasonal = isfinite(params.period)
 
-    trend    = _component_estimate(post, :x̄, t_out, sig, ȳ, s_y, true)
-    seasonal = has_seasonal ?
-        _component_estimate(post, :x̃, t_out, sig, 0.0, s_y, false) : nothing
+    trend = _component_estimate(post, :x̄, t_out, sig, ȳ, s_y, true)
+    seasonal =
+        has_seasonal ? _component_estimate(post, :x̃, t_out, sig, 0.0, s_y, false) : nothing
     has_noise = params.σ_noise > 0
-    noise    = has_noise ? _component_estimate(post, :ϵ, t_out, sig, 0.0, s_y, false) : nothing
+    noise = has_noise ? _component_estimate(post, :ϵ, t_out, sig, 0.0, s_y, false) : nothing
     _rate_estimate = approx_rate ? _approx_rate : _full_rate
-    rate     = _rate_estimate(post, t_out, sig, s_y)
+    rate = _rate_estimate(post, t_out, sig, s_y)
 
     fi = (ȳ=ȳ, s_y=s_y, approx_rate=approx_rate)
     return GPDecomp(t_out, trend, seasonal, noise, rate, sig, params, post, fi)
@@ -101,14 +103,16 @@ end
 Re-evaluate a fitted decomposition at new time points without re-fitting.
 """
 function predict(
-    d::GPDecomp,
-    t_new::AbstractVector{<:Real}=d.t;
-    sig::AbstractVector{<:Real}=d.sig,
+    d::GPDecomp, t_new::AbstractVector{<:Real}=d.t; sig::AbstractVector{<:Real}=d.sig
 )
     fi = d._fit_info
     return _build_decomposition(
-        d._posterior, Float64.(t_new), d.θ,
-        fi.ȳ, fi.s_y;
-        sig=Float64.(sig), approx_rate=fi.approx_rate,
+        d._posterior,
+        Float64.(t_new),
+        d.θ,
+        fi.ȳ,
+        fi.s_y;
+        sig=Float64.(sig),
+        approx_rate=fi.approx_rate,
     )
 end
