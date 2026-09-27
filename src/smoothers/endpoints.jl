@@ -76,15 +76,16 @@ end
 const _MUSGRAVE_IC_RATIOS = Dict(9 => 1.0, 13 => 3.5, 23 => 4.5)
 
 """
-    musgrave_ic_ratio(window) -> Float64
+    musgrave_ic_ratio(terms) -> Float64
 
-X-11's I/C ratio `R` for the Musgrave end weights of a Henderson filter of length
-`window`: `1.0` (9 terms), `3.5` (13 terms) or `4.5` (23 terms).
+X-11's I/C ratio `R` for the Musgrave end weights of a Henderson filter of `terms`
+samples (`bandwidth = (terms - 1)Δ`): `1.0` (9 terms), `3.5` (13 terms) or `4.5` (23
+terms).
 """
-function musgrave_ic_ratio(window::Integer)
-    haskey(_MUSGRAVE_IC_RATIOS, window) ||
+function musgrave_ic_ratio(terms::Integer)
+    haskey(_MUSGRAVE_IC_RATIOS, terms) ||
         throw(ArgumentError("X-11 defines I/C ratios for 9-, 13- and 23-term filters only"))
-    return _MUSGRAVE_IC_RATIOS[window]
+    return _MUSGRAVE_IC_RATIOS[terms]
 end
 
 Base.show(io::IO, ::NoEndpoints) = print(io, "NoEndpoints()")

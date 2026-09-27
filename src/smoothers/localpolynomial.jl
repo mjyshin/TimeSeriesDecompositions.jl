@@ -1,23 +1,24 @@
 """
-    LocalPolynomial(; window=nothing, degree=3, kernel=HendersonKernel(),
+    LocalPolynomial(; bandwidth=nothing, degree=3, kernel=HendersonKernel(),
                     endpoints=MinimumRevision()) <: AbstractTrendSmoother
 
-(`window=nothing` means 13 when fitted on its own, and is derived from the period inside
-a decomposition.)
+(`bandwidth=nothing` means `12Δ` (13 samples) when fitted on its own, and is derived from
+the period inside a decomposition.)
 
-Local polynomial trend smoother for regularly spaced times: at each time `x`, the
-weighted least-squares fit of a polynomial of degree `degree` to the observations within
-`h + 1` samples of `x`, weighted by `kernel` at their offsets `(tᵢ - x) / Δ`, evaluated
-at `x`. The window spans `window = 2h + 1` samples (odd). At the observed times this is
-the linear filter of X-11 and Proietti & Luati (2008); with the continuous form of the
-kernel it is also defined between them, where it reduces to the filter at every grid
-point.
+Local polynomial trend smoother for regularly spaced times `t` of spacing `Δ`: at each
+time `x`, the weighted least-squares fit of a polynomial of degree `degree` to the
+observations within `bandwidth / 2` of `x`, weighted by `kernel` at their offsets
+`(tᵢ - x) / Δ`, evaluated at `x`. The bandwidth is twice the radius: with
+`bandwidth = 2hΔ`, the `2h + 1` samples at offsets `-h:h` are in the window. At the
+observed times this is the linear filter of X-11 and Proietti & Luati (2008); with the
+continuous form of the kernel it is also defined between them, where it reduces to the
+filter at every grid point.
 
-- `window`: odd number of samples, or a vector of candidates from which the one
-  minimising the mean leave-one-out cross-validation score
-  `mean(((yₜ - m̂ₜ) / (1 - w₀))²)` over the interior points is chosen. `nothing` gives
-  13, the conventional length for monthly data; inside a decomposition it is instead
-  derived from the period.
+- `bandwidth`: in units of `t`, an even multiple `2hΔ` of the spacing with `h ≥ 1`, or a
+  vector of candidates from which the one minimising the mean leave-one-out
+  cross-validation score `mean(((yₜ - m̂ₜ) / (1 - w₀))²)` over the interior points is
+  chosen. `nothing` gives `12Δ`, the conventional 13-term filter for monthly data;
+  inside a decomposition it is instead derived from the period.
 - `degree`: degree of the local polynomial.
 - `kernel`: an [`AbstractSmootherKernel`](@ref).
 - `endpoints`: an [`AbstractEndpoints`](@ref) for the first and last `h` samples.
@@ -32,56 +33,60 @@ evaluates the smoother at any times in `[t₁, t_N]`. `f.state.weights` and
 """
 struct LocalPolynomial{K<:AbstractSmootherKernel,E<:AbstractEndpoints} <:
        AbstractTrendSmoother
-    window::Union{Nothing,Int,Vector{Int}}
+    bandwidth::Union{Nothing,Float64,Vector{Float64}}
     degree::Int
     kernel::K
     endpoints::E
 end
 
 function LocalPolynomial(;
-    window::Union{Nothing,Integer,AbstractVector{<:Integer}}=nothing,
+    bandwidth::Union{Nothing,Real,AbstractVector{<:Real}}=nothing,
     degree::Integer=3,
     kernel::AbstractSmootherKernel=HendersonKernel(),
     endpoints::AbstractEndpoints=MinimumRevision(),
 )
     degree ≥ 0 || throw(DomainError(degree, "degree must be non-negative"))
-    window isa Integer && _halfwidth(window, "window")
-    window = window isa AbstractVector ? collect(Int, window) : window
-    return LocalPolynomial(window, Int(degree), kernel, endpoints)
+    isnothing(bandwidth) ||
+        all(>(0), bandwidth) ||
+        throw(DomainError(bandwidth, "bandwidth must be positive"))
+    bandwidth = bandwidth isa AbstractVector ? collect(Float64, bandwidth) :
+                _float(bandwidth)
+    return LocalPolynomial(bandwidth, Int(degree), kernel, endpoints)
 end
 
 """
-    Henderson(; window=nothing, endpoints=MinimumRevision())
+    Henderson(; bandwidth=nothing, endpoints=MinimumRevision())
 
-(`window=nothing` means 13 when fitted on its own, and is derived from the period inside
-a decomposition.)
+(`bandwidth=nothing` means `12Δ` (13 samples) when fitted on its own, and is derived from
+the period inside a decomposition.)
 
 The Henderson filter as a smoother: a [`LocalPolynomial`](@ref) of degree 3 with the
-[`HendersonKernel`](@ref) (13 terms by default). As a type, `Henderson` is
+[`HendersonKernel`](@ref) (the 13-term filter by default). As a type, `Henderson` is
 `LocalPolynomial{HendersonKernel}`, which includes local polynomials of other degrees
 with that kernel.
 """
 const Henderson = LocalPolynomial{HendersonKernel}
 
 function Henderson(;
-    window::Union{Nothing,Integer,AbstractVector{<:Integer}}=nothing,
+    bandwidth::Union{Nothing,Real,AbstractVector{<:Real}}=nothing,
     endpoints::AbstractEndpoints=MinimumRevision(),
 )
-    return LocalPolynomial(; window, degree=3, kernel=HendersonKernel(), endpoints)
+    return LocalPolynomial(; bandwidth, degree=3, kernel=HendersonKernel(), endpoints)
 end
 
 _name(m::LocalPolynomial) = _is_henderson(m) ? :Henderson : :LocalPolynomial
 _is_henderson(m::LocalPolynomial) = m.kernel isa HendersonKernel && m.degree == 3
 
+_fmt_bandwidth(b) = isnothing(b) ? "nothing" : b isa Real ? _fmt(b) : string(_fmt.(b))
+
 function Base.show(io::IO, m::LocalPolynomial)
+    bandwidth = _fmt_bandwidth(m.bandwidth)
     if _is_henderson(m)
-        return print(
-            io, "Henderson(window=$(_nothing_or(m.window)), endpoints=$(m.endpoints))"
-        )
+        return print(io, "Henderson(bandwidth=$bandwidth, endpoints=$(m.endpoints))")
     end
     return print(
         io,
-        "LocalPolynomial(window=$(_nothing_or(m.window)), degree=$(m.degree), ",
+        "LocalPolynomial(bandwidth=$bandwidth, degree=$(m.degree), ",
         "kernel=$(m.kernel), endpoints=$(m.endpoints))",
     )
 end
@@ -91,21 +96,25 @@ function _fit(model::LocalPolynomial, y::AbstractVector{<:Real}, t::AbstractVect
     y, t = _sorted_data(y, t)
     Δ = _require_grid(t, "LocalPolynomial")
     estimated = (;)
-    window = something(model.window, _DEFAULT_WINDOW)
-    if window isa AbstractVector
-        window, cv_score = _select_window(y, window, model.degree, model.kernel)
-        estimated = (; window, cv_score)
+    bandwidth = something(model.bandwidth, 2_DEFAULT_HALFWIDTH * Δ)
+    if bandwidth isa AbstractVector
+        bandwidth, cv_score =
+            _select_bandwidth(y, bandwidth, Δ, model.degree, model.kernel)
+        estimated = (; bandwidth, cv_score)
     end
-    h = _halfwidth(window, "window")
-    length(y) ≥ window || throw(
-        ArgumentError("series of length $(length(y)) is shorter than the window $window"),
+    h = _halfwidth(bandwidth, Δ)
+    length(y) ≥ 2h + 1 || throw(
+        ArgumentError(
+            "series of length $(length(y)) is shorter than the $(2h + 1) samples of " *
+            "bandwidth $bandwidth",
+        ),
     )
     2h > model.degree ||
-        throw(ArgumentError("window $window is too short for degree $(model.degree)"))
+        throw(ArgumentError("bandwidth $bandwidth is too short for degree $(model.degree)"))
     g = _grid_kernel(model.kernel, h)
     endpoints, criteria = _resolve_endpoints(model.endpoints, g, y, model.degree)
     estimated = (; estimated..., criteria...)
-    resolved = LocalPolynomial(window, model.degree, model.kernel, endpoints)
+    resolved = LocalPolynomial(bandwidth, model.degree, model.kernel, endpoints)
     return _fitted_grid(resolved, g, endpoints, model.degree, y, t, Δ, estimated)
 end
 
@@ -113,24 +122,37 @@ function predict(f::FittedSmoother{<:LocalPolynomial}, t_new::AbstractVector{<:R
     return _predict_grid(f, t_new)
 end
 
-const _DEFAULT_WINDOW = 13
+const _DEFAULT_HALFWIDTH = 6
 
-# Window minimising the mean leave-one-out CV score (P&L §5); the mean, not the sum,
-# makes scores comparable across windows with different numbers of interior points
-function _select_window(y, windows, degree, kernel)
-    isempty(windows) && throw(ArgumentError("no candidate windows"))
+# Bandwidth (twice the radius, in units of t) on a grid of spacing Δ → half-width h in
+# samples: the 2h + 1 samples within bandwidth / 2 of x, the outer two included
+function _halfwidth(bandwidth::Real, Δ::Real)
+    h = bandwidth / 2Δ
+    isapprox(h, round(h); rtol=1e-8) && round(h) ≥ 1 || throw(
+        ArgumentError(
+            "bandwidth / Δt = $(bandwidth / Δ) must be an even integer ≥ 2, got " *
+            "bandwidth = $bandwidth",
+        ),
+    )
+    return round(Int, h)
+end
+
+# Bandwidth minimising the mean leave-one-out CV score (P&L §5); the mean, not the sum,
+# makes scores comparable across bandwidths with different numbers of interior points
+function _select_bandwidth(y, bandwidths, Δ, degree, kernel)
+    isempty(bandwidths) && throw(ArgumentError("no candidate bandwidths"))
     N = length(y)
-    scores = map(windows) do window
-        h = _halfwidth(window, "window")
-        N ≥ window && 2h > degree || return Inf
+    halfwidths = [_halfwidth(b, Δ) for b in bandwidths]
+    scores = map(halfwidths) do h
+        N ≥ 2h + 1 && 2h > degree || return Inf
         w = _local_weights(_grid_kernel(kernel, h), (-h):h, degree)
         return mean(((h + 1):(N - h))) do t
             return ((y[t] - dot(w, view(y, (t - h):(t + h)))) / (1 - w[h + 1]))^2
         end
     end
-    all(isinf, scores) && throw(ArgumentError("no candidate window fits the series"))
+    all(isinf, scores) && throw(ArgumentError("no candidate bandwidth fits the series"))
     i = argmin(scores)
-    return windows[i], scores[i]
+    return bandwidths[i], scores[i]
 end
 
 # Local polynomial weights on a regular grid, shared by LocalPolynomial and
@@ -279,7 +301,8 @@ end
 function _fitted_grid(model, g, endpoints, degree, y, t, Δ, estimated)
     r = g.reach
     N = length(y)
-    N ≥ 2r + 1 || throw(ArgumentError("series of length $N is too short for the window"))
+    N ≥ 2r + 1 ||
+        throw(ArgumentError("series of length $N is too short for the bandwidth"))
     weights = _local_weights(g, (-r):r, degree)
     end_weights = Vector{Float64}[
         _end_weights(endpoints, g, (-r):q, (q + 1):r, degree) for q in 0:(r - 1)
@@ -332,7 +355,7 @@ function _evaluate(g::_GridKernel, endpoints, degree, y, values, c, N)::Float64
     isempty(after) && isempty(before) && return dot(_local_weights(g, d, degree), y_idx)
     isempty(after) ||
         isempty(before) ||
-        throw(ArgumentError("the series is too short for the window"))
+        throw(ArgumentError("the series is too short for the bandwidth"))
     endpoints isa MinimumRevision && !isinteger(c) && return _lagrange(values, c)
     isempty(after) && return dot(_end_weights(endpoints, g, -d, -before, degree), y_idx)
     return dot(_end_weights(endpoints, g, d, after, degree), y_idx)

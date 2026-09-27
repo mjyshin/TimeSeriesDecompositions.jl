@@ -27,13 +27,6 @@ function _samples_per_period(period::Real, Δt::Real)
     return round(Int, T)
 end
 
-# Odd window length (in samples) → half-width h
-function _halfwidth(window::Integer, name::AbstractString)
-    window ≥ 3 && isodd(window) ||
-        throw(ArgumentError("$name must be an odd integer ≥ 3, got $window"))
-    return (window - 1) ÷ 2
-end
-
 _nextodd(x::Real) = (n=ceil(Int, x); isodd(n) ? n : n + 1)
 
 # Rate dx̄/dt from a uniformly sampled trend: the derivative of its cubic spline over its
