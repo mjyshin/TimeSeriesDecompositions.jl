@@ -2,8 +2,9 @@
     STLDecomp <: AbstractDecomp
 
 Seasonal-trend decomposition with a loess trend. The fitted smoothers are in
-`d.θ.smoothers` and the hyperparameters chosen from the data in `d.θ.estimated`. Point
-estimates only (`std` is `NaN`). See `fit(STLDecomp, ...)`.
+`d.θ.smoothers` and the hyperparameters chosen from the data in `d.θ.estimated`;
+`d.θ.grid` keeps the components at the observed times, from which `predict(d, t_new)`
+interpolates. Point estimates only (`std` is `NaN`). See `fit(STLDecomp, ...)`.
 
 !!! warning "Placeholder"
     This is **not yet** the STL procedure of Cleveland et al. (1990): there is no
@@ -34,7 +35,8 @@ Loess-based seasonal-trend decomposition of `y` observed at uniformly spaced tim
   `n_s = 7`.
 
 Hyperparameters chosen from the data are reported with an `@info` message and stored in
-`d.θ.estimated`. The rate is the derivative of the trend per unit of `t`.
+`d.θ.estimated`. The rate is the derivative, per unit of `t`, of the not-a-knot cubic
+spline through the trend.
 """
 function fit(
     ::Type{STLDecomp},
@@ -60,13 +62,16 @@ function fit(
 
     _log_estimated(STLDecomp, estimated)
     smoothers = (; initial_trend, seasonal=seasonal_fit, trend=trend_fit)
+    noise = adjusted - trend_values
+    rate = _trend_rate(trend_values, Δt)
+    grid = (; t, trend=trend_values, seasonal=seasonal, noise, rate)
     return STLDecomp(
         t,
         Component(trend_values),
         Component(seasonal),
-        Component(adjusted - trend_values),
-        Component(_trend_rate(trend_values, Δt)),
-        (; period=Float64(period), Δt, smoothers, estimated),
+        Component(noise),
+        Component(rate),
+        (; period=Float64(period), Δt, smoothers, estimated, grid),
     )
 end
 

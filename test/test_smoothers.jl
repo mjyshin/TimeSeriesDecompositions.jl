@@ -342,7 +342,15 @@ end
     y = s .+ 0.1randn(24)
     f = fit(StableSeasonal(), y; period=4)
     @test predict(f)[1] ≈ sum(y[1:4:24]) / 6
-    @test predict(f, [5.0]) == predict(f)[[5]]
+    @test predict(f, [5.0, 5.0 + 1e-12]) == predict(f)[[5, 5]]
+    # Between the samples: a sinusoid is interpolated exactly, for odd and even periods
+    for p in (3, 4, 12)
+        x = 1:(6p)
+        g = fit(StableSeasonal(), cospi.(2 .* x ./ p .+ 0.2), x; period=p)
+        τ = range(1, 6p; length=101)
+        @test predict(g, τ) ≈ cospi.(2 .* τ ./ p .+ 0.2) atol = 1e-12
+    end
+    @test_throws DomainError predict(f, [24.5])
     @test_throws ArgumentError SeasonalMovingAverage(; n=2)
     @test_throws ArgumentError fit(StableSeasonal(), s; period=1)
 end

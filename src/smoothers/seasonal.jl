@@ -35,8 +35,7 @@ end
 _min_cycles(m::SeasonalMovingAverage) = m.n + m.m - 1
 _min_cycles(::StableSeasonal) = 1
 
-# Fitted with the period in units of t on regularly spaced t (period / Δt an integer);
-# predict(f, t_new) evaluates it at the observed times
+# Fitted with the period in units of t on regularly spaced t (period / Δt an integer)
 function _fit(
     model::AbstractSeasonalSmoother,
     y::AbstractVector{<:Real},
@@ -50,10 +49,52 @@ function _fit(
     return FittedSmoother(model, t, y, values, (; period=Float64(period), Δ), (;))
 end
 
+"""
+    predict(f::FittedSmoother{<:AbstractSeasonalSmoother}, t_new) -> Vector{Float64}
+
+The fitted seasonal pattern at times `t_new` within the observed range: the fitted values
+at the observed times, and their trigonometric interpolation across phases in between
+(see `predict(d::X11Decomp, t_new)`).
+"""
 function predict(
     f::FittedSmoother{<:AbstractSeasonalSmoother}, t_new::AbstractVector{<:Real}
 )
-    return f.values[_grid_indices(f.t, f.state.Δ, t_new)]
+    (; period, Δ) = f.state
+    _check_in_range(f.t, t_new; atol=1e-8Δ)
+    p = round(Int, period / Δ)
+    return map(t_new) do τ
+        c = _grid_position(first(f.t), Δ, τ)
+        return isinteger(c) ? f.values[Int(c)] : _periodic_interpolation(f.values, c, p)
+    end
+end
+
+# Trigonometric interpolation at the fractional index c of v, a series with p samples per
+# cycle: the trigonometric polynomial of degree ≤ p/2 through a window of p consecutive
+# values containing floor(c) and ceil(c), with the Nyquist term of even p taken as a
+# cosine. For odd p the two nearly centred windows are averaged. The windows are clamped
+# into the series at its ends. Exact at the samples, continuous in c, and exact for any
+# periodic pattern of period p without a Nyquist sine term.
+function _periodic_interpolation(v::AbstractVector{Float64}, c::Real, p::Int)
+    k = floor(Int, c)
+    if iseven(p)
+        return _window_interpolation(v, c, p, k - p ÷ 2 + 1)
+    end
+    return (
+        _window_interpolation(v, c, p, k - (p - 1) ÷ 2) +
+        _window_interpolation(v, c, p, k - (p - 3) ÷ 2)
+    ) / 2
+end
+
+function _window_interpolation(v, c, p, first_index)
+    lo = clamp(first_index, 1, length(v) - p + 1)
+    return sum(v[j] * _periodic_cardinal(c - j, p) for j in lo:(lo + p - 1))
+end
+
+# Periodic cardinal (Dirichlet) function: 1 at multiples of p, 0 at other integers
+function _periodic_cardinal(x::Real, p::Int)
+    s = sinpi(x / p)
+    abs(s) < 1e-12 && return 1.0
+    return isodd(p) ? sinpi(x) / (p * s) : sinpi(x) / (p * s) * cospi(x / p)
 end
 
 # Smooth each cycle-subseries of x, a series with p samples per period

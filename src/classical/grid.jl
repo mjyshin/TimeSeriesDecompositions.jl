@@ -36,25 +36,8 @@ end
 
 _nextodd(x::Real) = (n=ceil(Int, x); isodd(n) ? n : n + 1)
 
-# Indices of t_new in the uniform grid t (error if any t_new is off-grid)
-function _grid_indices(
-    t::AbstractVector{Float64}, Δt::Float64, t_new::AbstractVector{<:Real}
-)
-    map(t_new) do τ
-        k = (τ - first(t)) / Δt
-        i = round(Int, k) + 1
-        isapprox(k, i - 1; atol=1e-8) && 1 ≤ i ≤ length(t) || throw(
-            ArgumentError(
-                "t = $τ is not an in-sample time; filter-based decompositions cannot " *
-                "extrapolate or interpolate",
-            ),
-        )
-        return i
-    end
-end
-
-# Rate dx̄/dt from a uniformly sampled trend, differentiated over its finite (contiguous)
-# span only so that NaN ends (e.g. a symmetric filter) do not propagate
+# Rate dx̄/dt from a uniformly sampled trend: the derivative of its cubic spline over its
+# finite (contiguous) span, so that NaN ends (e.g. a symmetric filter) do not propagate
 function _trend_rate(x̄::AbstractVector{<:Real}, Δt::Real)
     r = fill(NaN, length(x̄))
     idx = findall(isfinite, x̄)

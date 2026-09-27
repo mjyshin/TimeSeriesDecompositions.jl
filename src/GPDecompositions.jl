@@ -3,7 +3,7 @@ module GPDecompositions
 using AbstractGPs
 using Distributions
 using ForwardDiff
-using Interpolations: Interpolations, cubic_spline_interpolation
+using Interpolations: Interpolations, BSpline, Cubic, Free, OnGrid, interpolate
 using LinearAlgebra: I, diag, dot, tr
 using Optim
 using ParameterHandling

@@ -4,8 +4,9 @@
 X-11-style seasonal-trend decomposition from classical smoothers: a trend smoother
 (Henderson by default, or any [`AbstractTrendSmoother`](@ref)) and `S(n × m)` seasonal
 filters, for any integer period. The fitted smoothers are in `d.θ.smoothers` and the
-hyperparameters chosen from the data in `d.θ.estimated`. Point estimates only (`std` is
-`NaN`). See `fit(X11Decomp, ...)`.
+hyperparameters chosen from the data in `d.θ.estimated`; `d.θ.grid` keeps the components
+at the observed times, from which `predict(d, t_new)` interpolates. Point estimates only
+(`std` is `NaN`). See `fit(X11Decomp, ...)`.
 """
 struct X11Decomp <: AbstractDecomp
     t::Vector{Float64}
@@ -63,7 +64,8 @@ from the data are reported in one `@info` message and stored in `d.θ.estimated`
 X-13ARIMA-SEATS, there is no extreme-value adjustment, forecast extension or calendar
 adjustment.
 
-The rate is the derivative of the trend per unit of `t`.
+The rate is the derivative, per unit of `t`, of the not-a-knot cubic spline through the
+trend.
 """
 function fit(
     ::Type{X11Decomp},
@@ -128,13 +130,16 @@ function fit(
         seasonal=seasonal_fit,
         trend=trend_fit,
     )
+    noise = adjusted - trend_values
+    rate = _trend_rate(trend_values, Δt)
+    grid = (; t, trend=trend_values, seasonal=seasonal_values, noise, rate)
     return X11Decomp(
         t,
         Component(trend_values),
         Component(seasonal_values),
-        Component(adjusted - trend_values),
-        Component(_trend_rate(trend_values, Δt)),
-        (; period=Float64(period), Δt, smoothers, estimated),
+        Component(noise),
+        Component(rate),
+        (; period=Float64(period), Δt, smoothers, estimated, grid),
     )
 end
 

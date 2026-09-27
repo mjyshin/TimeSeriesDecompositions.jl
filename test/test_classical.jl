@@ -31,15 +31,62 @@ end
         fit(D, _yc, _tc; period=1.0).trend.mean
 end
 
-@testset "$D predict (in-sample only)" for D in (X11Decomp, STLDecomp)
-    d = fit(D, _yc, _tc; period=1.0)
-    @test predict(d).trend.mean == d.trend.mean
-    d2 = predict(d, _tc[(end - 11):end])
+@testset "$D predict ($trend)" for D in (X11Decomp, STLDecomp),
+    trend in (Henderson(), MovingAverage(), LOESS())
+
+    d = fit(D, _yc, _tc; period=1.0, trend)
+    for c in (:trend, :seasonal, :noise, :rate)
+        @test isequal(getfield(predict(d), c).mean, getfield(d, c).mean)
+    end
+    # On-grid times (unsorted, repeated, computed in floating point) copy the fit
+    idx = [100, 3, 3, 57]
+    t_grid = 2000 .+ (idx .- 1) ./ 12
+    d2 = predict(d, t_grid)
     @test d2 isa D
-    @test d2.t == _tc[(end - 11):end]
-    @test d2.seasonal.mean == d.seasonal.mean[(end - 11):end]
-    @test_throws ArgumentError predict(d, [_tc[end] + 1/12])
-    @test_throws ArgumentError predict(d, [_tc[1] + 1/24])
+    @test d2.t == t_grid
+    @test isequal(d2.seasonal.mean, d.seasonal.mean[idx])
+    @test isequal(d2.trend.mean, d.trend.mean[idx])
+    @test isequal(d2.rate.mean, d.rate.mean[idx])
+    @test isequal(predict(d2, _tc).trend.mean, d.trend.mean)    # predicts from the fit
+    # Off the grid: continuous, noise undefined, rate the derivative of the trend
+    t_off = _tc[60] .+ [-1e-7, 1e-7]    # beyond the 1e-8Δt snap to the grid
+    off = predict(d, t_off)
+    @test off.trend.mean ≈ fill(d.trend.mean[60], 2) atol = 1e-6
+    @test off.seasonal.mean ≈ fill(d.seasonal.mean[60], 2) atol = 1e-6
+    @test all(isnan, off.noise.mean)
+    @test all(isnan, off.trend.std)
+    τ, ε = _tc[60] + 0.3 / 12, 1e-6
+    ends = predict(d, [τ - ε, τ, τ + ε]).trend.mean
+    @test predict(d, [τ]).rate.mean[1] ≈ (ends[3] - ends[1]) / 2ε rtol = 1e-4
+    @test isempty(predict(d, Float64[]).t)
+    @test isequal(
+        predict(d, _tc[[1, end]] .+ [-1e-12, 1e-12]).rate.mean, d.rate.mean[[1, end]]
+    )
+    @test (@inferred predict(d, [_tc[60] + 0.3 / 12])) isa D
+    @test_throws DomainError predict(d, [_tc[1] - 1e-6])
+    @test_throws DomainError predict(d, [_tc[end] + 1e-6])
+end
+
+@testset "$D predict off the grid for period $p" for D in (X11Decomp, STLDecomp),
+    p in (2, 5)
+
+    N = 10p
+    x = 1:N
+    y = 0.1x .+ cospi.(2 .* x ./ p .+ 0.2) .* (p > 2) .+ 0.05 .* randn(N)
+    d = fit(D, y, x; period=p)
+    k = N ÷ 2
+    near = predict(d, k .+ [-1e-6, 1e-6])
+    @test near.seasonal.mean ≈ fill(d.seasonal.mean[k], 2) atol = 1e-4
+    @test near.trend.mean ≈ fill(d.trend.mean[k], 2) atol = 1e-4
+    @test near.rate.mean ≈ fill(d.rate.mean[k], 2) atol = 1e-4
+    @test all(isfinite, predict(d, range(1, N; length=3N)).seasonal.mean)
+end
+
+@testset "$D predict: NaN where the trend is undefined" for D in (X11Decomp, STLDecomp)
+    d = fit(D, _yc, _tc; period=1.0, trend=MovingAverage())
+    between = predict(d, _tc[1:2] .+ 1 / 24)
+    @test all(isnan, between.trend.mean) && all(isnan, between.rate.mean)
+    @test all(isfinite, between.seasonal.mean)
 end
 
 @testset "$D input validation" for D in (X11Decomp, STLDecomp)
@@ -135,6 +182,12 @@ end
         @test maximum(abs, d.seasonal.mean - seasonal) < 1e-10
         @test maximum(abs, d.noise.mean) < 1e-10
         @test maximum(abs, d.rate.mean .- 0.3) < 1e-10
+        # Off the grid: the line, and the periodic interpolation of the pattern
+        c = range(1, N - p; length=97)
+        off = predict(d, c)
+        @test maximum(abs, off.trend.mean - (2 .+ 0.3c)) < 1e-9
+        @test maximum(abs, off.rate.mean .- 0.3) < 1e-9
+        @test maximum(abs, off.seasonal.mean - predict(d, c .+ p).seasonal.mean) < 1e-9
     end
 end
 

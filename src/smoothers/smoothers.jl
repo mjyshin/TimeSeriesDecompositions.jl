@@ -112,11 +112,17 @@ function _require_grid(t, name)
     return Δ
 end
 
-function _check_in_range(t, t_new)
+function _check_in_range(t, t_new; atol::Real=0.0)
     t₁, t_N = first(t), last(t)
-    i = findfirst(x -> !(t₁ ≤ x ≤ t_N), t_new)
+    i = findfirst(x -> !(t₁ - atol ≤ x ≤ t_N + atol), t_new)
     isnothing(i) || throw(DomainError(t_new[i], "t_new must lie within [$t₁, $t_N]"))
     return nothing
+end
+
+# Fractional index of τ on the grid t₁, t₁ + Δ, …, snapped to an integer within 1e-8
+function _grid_position(t₁::Real, Δ::Real, τ::Real)
+    c = (τ - t₁) / Δ + 1
+    return isapprox(c, round(c); atol=1e-8) ? round(c) : c
 end
 
 # Report hyperparameters that were chosen from the data. Silence with the Logging stdlib,
