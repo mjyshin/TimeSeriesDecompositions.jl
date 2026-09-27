@@ -3,7 +3,7 @@
 This Julia package runs a seasonal-trend decomposition (estimation and forecasting) of a univariate time series using Gaussian processes (GPs).
 
 
-## Installation
+## 1&ensp;Installation
 
 Once you have installed [Julia](https://julialang.org/) (e.g., using [`juliaup`](https://github.com/JuliaLang/juliaup)), you can install this package from the Julia REPL by:
 
@@ -24,7 +24,9 @@ Pkg.develop("/path/to/GPDecompositions")
 In both methods, *remember to replace the* `/path/to/` *with the actual path to this repository on your machine*! (You can drop the `/path/to/` if you place the package within `~/.julia/dev/`.) Also, you only have to do the above steps once (per project environment), after which you can use `using GPDecompositions` to load it, as with any other Julia package.
 
 
-## Background
+## 2&ensp;Background
+
+### 2.1&ensp;Seasonal-trend decomposition
 
 The goal of this package is to decompose a given time series $\{(t_n, y_n)\}_{n=1}^N$ (where $t_n, y_n \in \mathbb{R}$) into three *additive* components:
 
@@ -46,7 +48,7 @@ $$\frac{\text d\bar x(t)}{\text dt} = r(t).$$
 
 One major advantage of using GPs for time series analysis is that the *data need not be uniformly sampled*. So you can feel free to remove obvious outliers or use noninteger times (or even have redundant data, i.e., multiple $y(t)$ values for a single "time" point $t$)! ☺
 
-### Logarithmic data
+### 2.2&ensp;Logarithmic data
 
 The above description is for linear time series. For data in the logarithmic scale where $y(t) > 0$, the decomposition of the data model is the *product*
 
@@ -56,12 +58,12 @@ and the rate $r(t)$ is the exponential growth rate defined by the ODE
 
 $$\frac{\text d\bar x(t)}{\text dt} = r(t)\bar x(t).$$
 
-We can run multiplicative decomposition by simply log-transforming the raw data $\log y(t)$ then exponentiating the resulting component $\exp f(t)$ (with the exception of the rate). If you have zeros in your log-scale data, you may consider adding a small fraction or use `log1p` and `expm1`.
+We can run multiplicative decomposition by simply log-transforming the raw data to $\log y(t)$ then exponentiating the resulting component to $\exp f(t)$ (with the exception of the rate). If you have zeros in your log-scale data, you may consider adding a small fraction or use `log1p.(y)` and `expm1.(x̄)`.
 
 
-## Implementation
+## 3&ensp;Implementation
 
-The simplest use-case for this package is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal patterns. For this, we simply call the main function `fit(Decomposition, ...)` following the `MultivariateStats` API:
+The simplest use-case for this package is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal patterns. For this, we simply call the main function `fit(Decomposition, ...)` following the [`MultivariateStats.jl`](https://github.com/JuliaStats/MultivariateStats.jl) API:
 
 ```julia
 decomp = fit(Decomposition, y)
@@ -85,7 +87,7 @@ If the seasonality slowly evolves with time, we can specify the `bandwidth` keyw
 decomp = fit(Decomposition, y, t; period=12, bandwidth=36)
 ```
 
-### Outputs
+### 3.1&ensp;Outputs
 
 The results are contained in a `Decomposition` struct. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise` and `decomp.rate`, respectively.
 
@@ -108,7 +110,7 @@ By default, we output the 50% and 90% CIs, but this could be changed during the 
 decomp = fit(Decomposition, y, t; sig=[0.99])
 ```
 
-### Recomputing decompositions
+### 3.2&ensp;Recomputing decompositions
 
 Instead of refitting a full decomposition, perhaps we wish to simply get the decomposition values (using the same training data) at different CIs or at different times $\{t_m'\}_{m=1}^M$. In this case, we can use the `predict(decomp, ...)` function, where `decomp` is the previously-trained decomposition results:
 
@@ -122,7 +124,7 @@ decomp′ = predict(decomp, t′)
 
 ## References
 
-### Code for optimization and differentiation
+### Code for GP optimization and differentiation
 
 1. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/extended_mauna_loa/
 2. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/differentiation/
