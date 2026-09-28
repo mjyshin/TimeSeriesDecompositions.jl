@@ -176,7 +176,7 @@ end
     # Too short to estimate: falls back to ratio 0 and says so
     short = lpf(; y=_y[1:20])
     @test short.model.endpoints.ratio == 0
-    @test haskey(short.estimated, :ratio_note)
+    @test haskey(short.estimated, :note_ratio)
 end
 
 @testset "reporting estimated hyperparameters" begin
@@ -290,7 +290,7 @@ end
 
 @testset "MovingAverage on a grid" begin
     x = collect(1.0:30)
-    # Odd bandwidth: the simple average; even bandwidth: the centred 2 × m average
+    # Odd bandwidth: the simple average; even bandwidth: the centered 2 × m average
     @test predict(fit(MovingAverage(; bandwidth=5), x))[3:28] ≈ x[3:28]
     y = randn(40)
     ma = predict(fit(MovingAverage(; bandwidth=12), y))
@@ -391,7 +391,7 @@ end
     @test predict(s, tn) ≈ [loess_reference(t, y, 3.0, 1, x) for x in tn]
     # The larger of the span and fixed bandwidths
     both = loess(y, t; span=0.1, bandwidth=4.0, degree=2)
-    q = GPDecompositions._span_neighbours(0.1, 60)
+    q = GPDecompositions._span_neighbors(0.1, 60)
     λ(x) = max(2.0, sort(abs.(t .- x))[q])
     @test predict(both, tn) ≈ [loess_reference(t, y, λ(x), 2, x) for x in tn]
     # Span above one: √α times the distance to the farthest observation, as in R
@@ -403,7 +403,7 @@ end
     wts = rand(60)
     s = loess(y, t; span=0.3, degree=1, wts)
     x = t[20]
-    λq = sort(abs.(t .- x))[GPDecompositions._span_neighbours(0.3, 60)]
+    λq = sort(abs.(t .- x))[GPDecompositions._span_neighbors(0.3, 60)]
     @test predict(s, [x]) ≈ [loess_reference(t, y, λq, 1, x; wts)]
 end
 
@@ -411,7 +411,7 @@ end
     for degree in 1:2, q in (9, 15, 21)
         s = loess(_y; span=q / 120, degree)
         f = lpf(; bandwidth=q - 3, degree, kernel=TricubeKernel(), endpoints=NoEndpoints())
-        inner = ((q + 1) ÷ 2):(120 - (q - 1) ÷ 2)    # symmetric neighbourhoods
+        inner = ((q + 1) ÷ 2):(120 - (q - 1) ÷ 2)    # symmetric neighborhoods
         @test predict(s)[inner] ≈ predict(f)[inner] atol = 1e-12
     end
 end

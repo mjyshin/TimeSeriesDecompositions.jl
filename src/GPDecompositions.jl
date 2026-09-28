@@ -4,7 +4,7 @@ using AbstractGPs
 using Distributions
 using ForwardDiff
 using Interpolations: Interpolations, BSpline, Cubic, Free, OnGrid, interpolate
-using LinearAlgebra: I, diag, dot, tr
+using LinearAlgebra: I, PosDefException, Symmetric, cholesky, diag, dot, tr
 using Optim
 using ParameterHandling
 using Reexport
@@ -42,6 +42,7 @@ include("smoothers/seasonal.jl")
 include("smoothers/derivative.jl")
 
 include("classical/grid.jl")
+include("classical/stages.jl")
 include("classical/x11.jl")
 include("classical/stl.jl")
 include("classical/classical.jl")

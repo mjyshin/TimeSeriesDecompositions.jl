@@ -10,10 +10,10 @@ interpolated, which adds no information:
 - the trend is the not-a-knot cubic spline through the fitted trend and the rate its
   derivative, as at the observed times (both `NaN` where the trend is undefined). This
   differs slightly from re-evaluating the trend smoother,
-  `predict(d.θ.smoothers.trend, t_new)`, whose derivative jumps at the samples;
+  `predict(d.smoother.trend.final, t_new)`, whose derivative jumps at the samples;
 - the seasonal is the trigonometric interpolation across phases of the fitted seasonal:
   the trigonometric polynomial of degree ≤ p/2 through the cycle of samples around each
-  time (for odd `p`, the average of the two nearly centred cycles). A fixed seasonal
+  time (for odd `p`, the average of the two nearly centered cycles). A fixed seasonal
   pattern is interpolated exactly. In the interior of the series, for the `S(n × m)`
   filters of [`X11Decomp`](@ref), this equals those filters applied at an intermediate
   phase to the trigonometric interpolation of the detrended series; near the ends,
@@ -27,8 +27,9 @@ Times beyond the observed range throw a `DomainError`: filter-based decompositio
 forecast.
 """
 function predict(d::_FilterDecomp, t_new::AbstractVector{<:Real}=d.t)
+    (; Δt, grid) = d._fit_info
     trend, seasonal, noise, rate = _interpolate_components(
-        d.θ.grid, d.θ.Δt, round(Int, d.θ.period / d.θ.Δt), t_new
+        grid, Δt, round(Int, d.θ.period / Δt), t_new
     )
     return typeof(d)(
         collect(Float64, t_new),
@@ -37,6 +38,8 @@ function predict(d::_FilterDecomp, t_new::AbstractVector{<:Real}=d.t)
         Component(noise),
         Component(rate),
         d.θ,
+        d.smoother,
+        d._fit_info,
     )
 end
 
@@ -73,7 +76,19 @@ function Base.show(io::IO, ::MIME"text/plain", d::_FilterDecomp)
     _show_header(io, d)
     _show_line(io, "components", "trend, seasonal, noise, rate (point estimates)")
     _show_line(io, "period", _fmt(d.θ.period))
-    _show_section(io, "smoothers", pairs(map(f -> f.model, d.θ.smoothers)))
-    _show_section(io, "estimated", pairs(d.θ.estimated))
+    stages = ["$c.$stage" => d.smoother[c][stage].model for (c, stage) in _stages(d)]
+    (; estimated, derived, criteria) = d._fit_info
+    row(k) = k => (k ∈ derived ? "$(_fmt(d.θ[k])) (derived)" : d.θ[k])
+    hyperparameters = filter(!=(:period), collect(keys(d.θ)))
+    sections = (
+        "smoothers" => stages,
+        "estimated" => [row(k) for k in hyperparameters if k ∈ estimated],
+        "fixed" => [row(k) for k in hyperparameters if k ∉ estimated],
+        "criteria" => collect(pairs(criteria)),
+    )
+    width = _section_width(last.(sections)...)
+    for (label, rows) in sections
+        _show_section(io, label, rows; width)
+    end
     return nothing
 end

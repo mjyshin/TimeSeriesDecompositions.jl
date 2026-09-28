@@ -59,11 +59,17 @@ Base.show(io::IO, d::AbstractDecomp) = _show_header(io, d)
 
 _show_line(io::IO, label, value) = print(io, "\n  ", rpad(label, 11), ": ", value)
 
-function _show_section(io::IO, label, rows)
+# Width of the name column fitting every row of the sections, so that they align
+function _section_width(sections...)
+    widths = (textwidth(string(name)) + 1 for rows in sections for (name, _) in rows)
+    return max(21, maximum(widths; init=0))
+end
+
+function _show_section(io::IO, label, rows; width=_section_width(rows))
     isempty(rows) && return nothing
     print(io, "\n  ", rpad(label, 11), ":")
     for (name, value) in rows
-        print(io, "\n    ", rpad(string(name), 21), _fmt(value))
+        print(io, "\n    ", rpad(string(name), width), _fmt(value))
     end
     return nothing
 end

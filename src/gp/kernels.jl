@@ -77,13 +77,12 @@ function _zero_mean_periodic(k_per::Kernel, period::Real; n::Int=1024)
     return _ZeroMeanKernel(k_per, a₀)
 end
 
-function _seasonal_kernel(
-    l_seasonal::Real, period::Real, bandwidth::Real, kernels::NamedTuple
-)
+# The envelope has lengthscale bandwidth = period / ρ; ρ = 0 is the static model
+function _seasonal_kernel(l_seasonal::Real, period::Real, ρ::Real, kernels::NamedTuple)
     k_per = with_lengthscale(kernels.effect, l_seasonal) ∘ PeriodicTransform(1 / period)
     k_per = _zero_mean_periodic(k_per, period)
-    isfinite(bandwidth) || return k_per
-    return k_per * with_lengthscale(kernels.envelope, bandwidth)
+    iszero(ρ) && return k_per
+    return k_per * (kernels.envelope ∘ ScaleTransform(ρ / period))
 end
 
 function _build_gp(θ::NamedTuple, kernels::NamedTuple=_default_kernels)
@@ -94,7 +93,7 @@ function _build_gp(θ::NamedTuple, kernels::NamedTuple=_default_kernels)
     if has_seasonal && has_noise
         k_seasonal =
             θ.σ_seasonal^2 *
-            _seasonal_kernel(θ.l_seasonal, θ.period, θ.bandwidth, kernels.seasonal)
+            _seasonal_kernel(θ.l_seasonal, θ.period, θ.ρ, kernels.seasonal)
         k_noise = θ.σ_noise^2 * WhiteKernel()
         return @gppp let
             x̄ = GP(k_trend)
@@ -105,7 +104,7 @@ function _build_gp(θ::NamedTuple, kernels::NamedTuple=_default_kernels)
     elseif has_seasonal
         k_seasonal =
             θ.σ_seasonal^2 *
-            _seasonal_kernel(θ.l_seasonal, θ.period, θ.bandwidth, kernels.seasonal)
+            _seasonal_kernel(θ.l_seasonal, θ.period, θ.ρ, kernels.seasonal)
         return @gppp let
             x̄ = GP(k_trend)
             x̃ = GP(k_seasonal)

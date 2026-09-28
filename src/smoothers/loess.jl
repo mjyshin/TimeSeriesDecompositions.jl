@@ -19,7 +19,7 @@ exactly at every point, matching R's `loess(..., surface = "direct")`.
   that gaps are bridged.
 - `degree`: degree of the local polynomials, `0`, `1` or `2`.
 
-If neither `span` nor `bandwidth` is given, the span is chosen by minimising the AICc of
+If neither `span` nor `bandwidth` is given, the span is chosen by minimizing the AICc of
 Hurvich, Simonoff & Tsai (1998), `log σ̂² + 1 + 2(tr L + 1) / (N - tr L - 2)` for the hat
 matrix `L`, which is reported with the equivalent number of parameters `tr L` (inside a
 decomposition, `nothing` instead derives the span from the period). The AICc assumes
@@ -85,7 +85,7 @@ function _fit(
         estimated = (; span, criteria...)
     end
     isnothing(span) ||
-        _span_neighbours(span, N) ≥ degree + 2 ||
+        _span_neighbors(span, N) ≥ degree + 2 ||
         throw(ArgumentError("span × N must be at least degree + 2 = $(degree + 2)"))
     α, h = something(span, 0.0), _radius(bandwidth)
     values = first(_loess_fit(t, y, wts, α, h, degree))
@@ -98,8 +98,8 @@ _float(x) = isnothing(x) ? nothing : Float64(x)
 # Fixed radius λ of a bandwidth (twice the radius), 0 for none
 _radius(bandwidth) = isnothing(bandwidth) ? 0.0 : bandwidth / 2
 
-# Number of nearest neighbours q = ⌊αN + 10⁻⁵⌋ for the span α, the rounding of R's loess
-_span_neighbours(span, N) = floor(Int, span * N + 1e-5)
+# Number of nearest neighbors q = ⌊αN + 10⁻⁵⌋ for the span α, the rounding of R's loess
+_span_neighbors(span, N) = floor(Int, span * N + 1e-5)
 
 function predict(
     f::FittedSmoother{LOESS}, t_new::AbstractVector{<:Real}; extrapolate::Bool=false
@@ -120,12 +120,12 @@ end
 # as R's loess computes for one predictor (its documentation states α^(1/p))
 function _local_fit(t::Vector{Float64}, wts::Vector{Float64}, α, h, degree, x::Float64)
     N = length(t)
-    q = α > 0 ? _span_neighbours(α, N) : 0
+    q = α > 0 ? _span_neighbors(α, N) : 0
     λ = h
     if q > 0
         hi = searchsortedfirst(t, x) - 1    # [lo, hi] starts empty between t[hi] and t[lo]
         lo = hi + 1
-        for _ in 1:min(q, N)    # add the nearer of the two neighbouring observations
+        for _ in 1:min(q, N)    # add the nearer of the two neighboring observations
             if hi == N || (lo > 1 && x - t[lo - 1] ≤ t[hi + 1] - x)
                 lo -= 1
             else
@@ -204,7 +204,7 @@ end
 # Largest number of hat-matrix entries N·q for which the autocorrelation check is run
 const _MAX_DIAGNOSTIC_ENTRIES = 2_000_000
 
-# Number of neighbours q minimising the AICc log σ̂² + 1 + 2(tr L + 1) / (n - tr L - 2)
+# Number of neighbors q minimizing the AICc log σ̂² + 1 + 2(tr L + 1) / (n - tr L - 2)
 # over about 40 values spaced geometrically between degree + 2 and N, skipping those
 # that leave some local fit with too few distinct observations; σ̂² is weighted by the
 # observation weights and n is the number of observations with positive weight. The residuals of
@@ -233,7 +233,7 @@ function _select_span(t, y, wts, degree)
     criteria = (; enp=best.enp, aicc=best.aicc)
     if N * best.q > _MAX_DIAGNOSTIC_ENTRIES
         note = "residual autocorrelation not checked: N × q exceeds $_MAX_DIAGNOSTIC_ENTRIES"
-        return best.q, (; criteria..., autocorrelation_note=note)
+        return best.q, (; criteria..., note_autocorr=note)
     end
     z = _residual_autocorrelation_z(_hat_matrix(t, wts, best.q / N, 0.0, degree), y)
     z > 3 && @warn(
@@ -244,7 +244,7 @@ function _select_span(t, y, wts, degree)
     return best.q, (; criteria..., autocorrelation_z=z)
 end
 
-# Standardised excess lag-one autocorrelation of the residuals r = My, M = I - L, over
+# Standardized excess lag-one autocorrelation of the residuals r = My, M = I - L, over
 # its expectation under independent errors: with the lag-one shift S, A = Mᵀ(S + Sᵀ)M/2
 # and B = MᵀM, ρ̂ = yᵀAy / yᵀBy has approximate mean ρ₀ = tr A / tr B and standard
 # deviation √(2 tr C²) / tr B for C = A - ρ₀B

@@ -13,7 +13,7 @@ abstract type AbstractSmootherKernel end
     HendersonKernel()
 
 Henderson (1916) kernel `κⱼ = [(h+1)² - j²][(h+2)² - j²][(h+3)² - j²]`. With a local
-cubic it gives the weights minimising the variance of the third differences of the
+cubic it gives the weights minimizing the variance of the third differences of the
 filtered series: the Henderson filter of X-11.
 """
 struct HendersonKernel <: AbstractSmootherKernel end
@@ -51,7 +51,7 @@ struct UniformKernel <: AbstractSmootherKernel end
 """
     kernel_weights(kernel::AbstractSmootherKernel, h::Integer) -> Vector{Float64}
 
-Unnormalised weights `κⱼ`, `j = -h:h`, of `kernel` for a filter of length `2h + 1`: the
+Unnormalized weights `κⱼ`, `j = -h:h`, of `kernel` for a filter of length `2h + 1`: the
 kernel's continuous form `κ(d)` (see [`AbstractSmootherKernel`](@ref)) at the integer
 offsets.
 """

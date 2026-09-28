@@ -15,7 +15,7 @@ continuous form of the kernel it is also defined between them, where it reduces 
 filter at every grid point.
 
 - `bandwidth`: in units of `t`, an even multiple `2hΔ` of the spacing with `h ≥ 1`, or a
-  vector of candidates from which the one minimising the mean leave-one-out
+  vector of candidates from which the one minimizing the mean leave-one-out
   cross-validation score `mean(((yₜ - m̂ₜ) / (1 - w₀))²)` over the interior points is
   chosen. `nothing` gives `12Δ`, the conventional 13-term filter for monthly data;
   inside a decomposition it is instead derived from the period.
@@ -137,7 +137,7 @@ function _halfwidth(bandwidth::Real, Δ::Real)
     return round(Int, h)
 end
 
-# Bandwidth minimising the mean leave-one-out CV score (P&L §5); the mean, not the sum,
+# Bandwidth minimizing the mean leave-one-out CV score (P&L §5); the mean, not the sum,
 # makes scores comparable across bandwidths with different numbers of interior points
 function _select_bandwidth(y, bandwidths, Δ, degree, kernel)
     isempty(bandwidths) && throw(ArgumentError("no candidate bandwidths"))
@@ -261,7 +261,7 @@ end
 
 const _MIN_MSRE_POINTS = 10
 
-# ρ minimising the mean square revision error mean((m̂ₜ - m̂ₜ|ₜ)²) of the real-time
+# ρ minimizing the mean square revision error mean((m̂ₜ - m̂ₜ|ₜ)²) of the real-time
 # (q = 0) weights over the interior points (P&L §5): grid search over {0, Inf} ∪
 # 10^(-4:0.1:2), refined by Brent's method on log₁₀ρ around the best interior grid
 # point. Falls back to ρ = 0 when there are too few interior points to estimate it.
@@ -271,7 +271,7 @@ function _estimate_ratio(e::MinimumRevision{Nothing}, g::_GridKernel, y, degree)
     ts = (r + 1):(N - r)
     if length(ts) < _MIN_MSRE_POINTS
         note = "too few points to estimate the ratio by MSRE; using 0"
-        return MinimumRevision(e.degree, 0.0), (; ratio=0.0, ratio_note=note)
+        return MinimumRevision(e.degree, 0.0), (; ratio=0.0, note_ratio=note)
     end
     w = _local_weights(g, (-r):r, degree)
     final = [dot(w, view(y, (t - r):(t + r))) for t in ts]

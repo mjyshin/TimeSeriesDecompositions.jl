@@ -12,7 +12,7 @@ struct StableSeasonal <: AbstractSeasonalSmoother end
 The `S(n × m)` seasonal filter of X-11: each cycle-subseries (the observations at one
 phase of the cycle) is smoothed by an `m`-term moving average and then an `n`-term moving
 average. `n` and `m` must be odd. At the ends of each subseries the averages are
-truncated and renormalised, which reproduces constants but differs from X-11's published
+truncated and renormalized, which reproduces constants but differs from X-11's published
 asymmetric S3×3 and S3×5 weights.
 """
 struct SeasonalMovingAverage <: AbstractSeasonalSmoother
@@ -71,7 +71,7 @@ end
 # Trigonometric interpolation at the fractional index c of v, a series with p samples per
 # cycle: the trigonometric polynomial of degree ≤ p/2 through a window of p consecutive
 # values containing floor(c) and ceil(c), with the Nyquist term of even p taken as a
-# cosine. For odd p the two nearly centred windows are averaged. The windows are clamped
+# cosine. For odd p the two nearly centered windows are averaged. The windows are clamped
 # into the series at its ends. Exact at the samples, continuous in c, and exact for any
 # periodic pattern of period p without a Nyquist sine term.
 function _periodic_interpolation(v::AbstractVector{Float64}, c::Real, p::Int)
@@ -117,8 +117,8 @@ function _seasonal_values(model::SeasonalMovingAverage, x, p)
     return s
 end
 
-# Centred filter with weights w (odd length); at the ends, the weights falling outside
-# the series are dropped and the remainder renormalised to sum to one
+# Centered filter with weights w (odd length); at the ends, the weights falling outside
+# the series are dropped and the remainder renormalized to sum to one
 function _truncated_filter(w::AbstractVector{<:Real}, y::AbstractVector{<:Real})
     h = (length(w) - 1) ÷ 2
     N = length(y)

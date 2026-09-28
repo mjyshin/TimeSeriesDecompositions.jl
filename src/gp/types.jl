@@ -10,11 +10,20 @@ struct GPDecomp <: AbstractDecomp
     _fit_info::NamedTuple  # (ȳ, s_y, approx_rate, fit): fit has optimizer diagnostics
 end
 
-const _GP_HYPERPARAMETERS = (:σ_trend, :l_trend, :σ_seasonal, :l_seasonal, :σ_noise)
+const _GP_HYPERPARAMETERS = (
+    :σ_trend, :l_trend, :σ_seasonal, :l_seasonal, :bandwidth, :σ_noise
+)
 
 _kernel_name(k) = string(nameof(typeof(k)))
 _kernel_name(k::TransformedKernel) = _kernel_name(k.kernel)
 _kernel_name(k::ScaledKernel) = _kernel_name(k.kernel)
+
+function _bandwidth_row(bandwidth, test)
+    v = isfinite(bandwidth) ? _fmt(bandwidth) : "Inf (static)"
+    isnothing(test) && return v
+    v *= " (2ΔlogL vs static = $(round(test.lr_static; digits=1))"
+    return v * (test.approximate ? ", approximate test)" : ")")
+end
 
 function Base.show(io::IO, ::MIME"text/plain", d::GPDecomp)
     θ, fi = d.θ, d._fit_info.fit
@@ -31,9 +40,6 @@ function Base.show(io::IO, ::MIME"text/plain", d::GPDecomp)
     d._fit_info.approx_rate && (ci *= " (none for rate: approx_rate)")
     _show_line(io, "CI levels", ci)
     _show_line(io, "period", has_seasonal ? _fmt(θ.period) : "none")
-    has_seasonal && _show_line(
-        io, "bandwidth", isfinite(θ.bandwidth) ? _fmt(θ.bandwidth) : "Inf (static)"
-    )
 
     kernels = Pair{Symbol,String}[:trend => _kernel_name(fi.kernels.trend)]
     if has_seasonal
@@ -42,20 +48,23 @@ function Base.show(io::IO, ::MIME"text/plain", d::GPDecomp)
         isfinite(θ.bandwidth) &&
             push!(kernels, :envelope => _kernel_name(fi.kernels.seasonal.envelope))
     end
-    _show_section(io, "kernels", kernels)
-
     # Structurally absent parameters (no seasonal, no noise) are neither estimated nor fixed
     present = filter(_GP_HYPERPARAMETERS) do k
-        return (has_seasonal || k ∉ (:σ_seasonal, :l_seasonal)) &&
+        return (has_seasonal || k ∉ (:σ_seasonal, :l_seasonal, :bandwidth)) &&
                (has_noise || k != :σ_noise)
     end
     function row(k)
+        k == :bandwidth && return k => _bandwidth_row(θ.bandwidth, fi.bandwidth_test)
         v = _fmt(θ[k])
         k == :l_trend && fi.l_trend_min > 0 || return k => v
         return k => "$v (> $(_fmt(fi.l_trend_min))$(fi.at_bound ? ", at bound" : ""))"
     end
-    _show_section(io, "estimated", [row(k) for k in present if k ∈ fi.free])
-    _show_section(io, "fixed", [row(k) for k in present if k ∉ fi.free])
+    estimated = [row(k) for k in present if k ∈ fi.free]
+    fixed = [row(k) for k in present if k ∉ fi.free]
+    width = _section_width(kernels, estimated, fixed)
+    _show_section(io, "kernels", kernels; width)
+    _show_section(io, "estimated", estimated; width)
+    _show_section(io, "fixed", fixed; width)
 
     fit_str = "log-likelihood $(_fmt(fi.loglik))"
     if !isnothing(fi.optimizer)

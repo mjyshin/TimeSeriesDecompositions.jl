@@ -41,7 +41,7 @@ end
 end
 
 @testset "bandwidth ignored when no seasonal" begin
-    d = fit(GPDecomp, _y, _t; bandwidth=30.0)
+    d = fit(GPDecomp, _y, _t; θ_fixed=(bandwidth=30.0,))
     @test isnothing(d.seasonal)
     @test d.θ.bandwidth == Inf
 end
@@ -118,7 +118,7 @@ end
 end
 
 @testset "quasi-periodic bandwidth" begin
-    d = fit(GPDecomp, _y, _t; period=12.0, bandwidth=30.0)
+    d = fit(GPDecomp, _y, _t; period=12.0, θ_fixed=(bandwidth=30.0,))
     @test isfinite(d.θ.bandwidth)
     @test d.θ.bandwidth ≈ 30.0
 end
@@ -171,7 +171,7 @@ end
         _y,
         _t;
         period=12.0,
-        bandwidth=30.0,
+        θ_fixed=(bandwidth=30.0,),
         kernel=(trend=SE, seasonal=(effect=M32, envelope=SE)),
     )
     s = sprint(show, MIME"text/plain"(), d)
@@ -181,11 +181,30 @@ end
 end
 
 @testset "θ from fit can be passed as θ_init" begin
-    d1 = fit(GPDecomp, _y, _t; period=12.0, bandwidth=30.0)
-    d2 = fit(GPDecomp, _y, _t; θ_init=d1.θ)
+    d1 = fit(GPDecomp, _y, _t; period=12.0, θ_fixed=(bandwidth=30.0,))
+    d2 = fit(GPDecomp, _y, _t; θ_fixed=d1.θ)    # the same fit
     @test d2.θ.period ≈ 12.0
     @test d2.θ.bandwidth ≈ 30.0
+    @test d2.θ.l_trend ≈ d1.θ.l_trend
+    @test isempty(d2._fit_info.fit.free)
     @test !isnothing(d2.seasonal)
+    d3 = fit(GPDecomp, _y, _t; θ_init=d1.θ)    # the bandwidth is re-estimated
+    @test !isnothing(d3._fit_info.fit.bandwidth_test)
+end
+
+@testset "θ_init and θ_fixed" begin
+    # a hyperparameter in both is fixed at the θ_fixed value, with a warning
+    d = @test_logs (:warn, r"θ_init and θ_fixed both give σ_noise") match_mode = :any fit(
+        GPDecomp, _y, _t; θ_init=(σ_noise=0.5, l_trend=20.0), θ_fixed=(σ_noise=0.2,)
+    )
+    @test d.θ.σ_noise ≈ 0.2
+    @test :σ_noise ∉ d._fit_info.fit.free
+    @test :l_trend ∈ d._fit_info.fit.free
+    @test_throws ArgumentError fit(GPDecomp, _y, _t; θ_init=(lengthscale=1.0,))
+    @test_throws ArgumentError fit(GPDecomp, _y, _t; θ_fixed=(noise=1.0,))
+    # the period may be given in θ_fixed; the keyword overrides it
+    @test fit(GPDecomp, _y, _t; θ_fixed=(period=12.0,)).θ.period ≈ 12.0
+    @test isnothing(fit(GPDecomp, _y, _t; period=Inf, θ_fixed=(period=12.0,)).seasonal)
 end
 
 @testset "explicit kwarg overrides θ_init period" begin
@@ -195,7 +214,13 @@ end
 end
 
 @testset "show" begin
-    d = fit(GPDecomp, _y, _t; period=12.0, bandwidth=30.0, θ_fixed=[:σ_noise])
+    d = fit(
+        GPDecomp,
+        _y,
+        _t;
+        period=12.0,
+        θ_fixed=(σ_noise=0.1, bandwidth=30.0),
+    )
     @test sprint(show, d) == "GPDecomp{N=50, t∈[1.0, 50.0]}"
     s = sprint(show, MIME"text/plain"(), d)
     for label in ("kernels", "estimated", "fixed", "fit", "envelope", "l_trend")

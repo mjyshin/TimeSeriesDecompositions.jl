@@ -5,11 +5,11 @@
 Moving average over a window of length `bandwidth` (in units of `t`, twice the radius),
 defined for any times as the Gasser–Müller box average: the average over
 `[x - bandwidth/2, x + bandwidth/2]` of the piecewise-constant interpolant that gives
-each observation its Voronoi cell (the interval between the midpoints to its neighbours;
+each observation its Voronoi cell (the interval between the midpoints to its neighbors;
 the outer cells extend half a spacing beyond the data, and tied times share one cell).
 Observation `i` thus has weight `|cellᵢ ∩ window| / bandwidth`.
 
-On a regular grid of spacing `Δ` with `bandwidth = mΔ` it is exactly the centred `2 × m`
+On a regular grid of spacing `Δ` with `bandwidth = mΔ` it is exactly the centered `2 × m`
 average for even `m` (weights `[½, 1, …, 1, ½] / m` on the `m + 1` samples within
 `bandwidth / 2`, the outer two half covered) and the `m`-term moving average for odd `m`,
 which annihilates any fixed seasonal pattern of period `m`; for irregular `t` it
@@ -21,7 +21,7 @@ It reproduces constants, but lines only where the observations are symmetric abo
 - `endpoints`: [`NoEndpoints`](@ref) (default) gives `NaN` where the window extends beyond
   the outer cells, as in R's `decompose`; on a regular grid,
   [`MinimumRevision`](@ref)`(degree=0)` or [`DirectAsymmetric`](@ref) (the truncated,
-  renormalised average) fill those points.
+  renormalized average) fill those points.
 - `gapfactor`: the average is `NaN`, with a warning, where one observation's cell covers
   more than `gapfactor` typical spacings of the window, i.e. where a gap in the data
   leaves the window to a single observation. The typical spacing is the gap containing a
@@ -111,7 +111,7 @@ function _typical_spacing(times)
     return gaps[searchsortedfirst(cumulative, last(cumulative) / 2)]
 end
 
-# Voronoi cell boundaries: midpoints between neighbours, with the outer cells extending
+# Voronoi cell boundaries: midpoints between neighbors, with the outer cells extending
 # half a spacing beyond the data
 function _cell_edges(times)
     mids = (times[1:(end - 1)] .+ times[2:end]) ./ 2

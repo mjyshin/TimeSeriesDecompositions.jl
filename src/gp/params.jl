@@ -4,17 +4,15 @@ function _param_wrap(v::Real, fixed::Bool)
     return positive(Float64(v))
 end
 
-# Lower bound on l_trend that keeps the lengthscales ordered,
-#     l_trend > max(bandwidth, period) ≥ bandwidth ≥ period > seasonal timescale > 0
-# where 0 is the (white) noise.
+# Lower bound on l_trend that separates the trend from the seasonal component,
+#     l_trend > period > seasonal timescale > 0 (noise), bandwidth ≥ period.
 # A periodic kernel's correlation range is at most period/2, and the zero-mean seasonal
-# kernel cannot mimic a trend, so l_trend is the only parameter bounded for the ordering.
-# With bandwidth = Inf (static seasonality) the bound is the period; without seasonality,
-# there is no bound.
-function _trend_lower_bound(period::Real, bandwidth::Real)
-    isfinite(period) || return 0.0
-    return isfinite(bandwidth) ? Float64(max(bandwidth, period)) : Float64(period)
-end
+# kernel cannot mimic a trend: with the envelope, its spectrum is Σ_{k≠0} aₖ S_env(f - k/P),
+# whose leakage to f = 0 is S_env(1/P)/S_env(0) = (1 + 4π²(B/P)²/5)⁻³ ≤ 1.4e-3 for a
+# Matérn-5/2 envelope of bandwidth B ≥ P. The trend competes with the seasonal component
+# only for l_trend ~ period, so l_trend need not exceed the bandwidth, which then stays
+# free to be estimated. Without seasonality there is no bound.
+_trend_lower_bound(period::Real) = isfinite(period) ? Float64(period) : 0.0
 
 # l_trend = lb + exp(x): strictly above the bound, unconstrained for the optimizer
 function _trend_wrap(v::Real, fixed::Bool, lb::Real)
@@ -22,8 +20,8 @@ function _trend_wrap(v::Real, fixed::Bool, lb::Real)
     if fixed || !isfinite(v)
         v > lb || throw(
             ArgumentError(
-                "fixed l_trend = $v must exceed max(bandwidth, period) = $lb so that " *
-                "the trend is smoother than the seasonal component",
+                "fixed l_trend = $v must exceed the period $lb so that the trend is " *
+                "smoother than the seasonal component",
             ),
         )
         return ParameterHandling.fixed(Float64(v))
@@ -58,18 +56,25 @@ end
 # Initial l_trend: the default starts at 2lb; a user value on or below the bound is moved
 function _initial_l_trend(v::Real, user_given::Bool, fixed::Bool, lb::Real)
     (lb > 0 && !fixed && v <= lb) || return Float64(v)
-    user_given && @info "θ_init.l_trend = $v is not above max(bandwidth, period) = " *
-        "$lb; starting the optimizer from l_trend = $(2lb)"
+    user_given && @info "θ_init.l_trend = $v is not above the period $lb; starting " *
+        "the optimizer from l_trend = $(2lb)"
     return 2lb
+end
+
+# The envelope enters as ρ = period / bandwidth ∈ [0, 1], so that the static model
+# (bandwidth = Inf) is the finite boundary ρ = 0. The NLL is even in ρ there (the
+# envelope is 1 - c(ρΔ/P)² + … for smooth kernels), so the optimizer cannot reach ρ = 0
+# from inside; the static model is fitted separately with ρ fixed at 0.
+function _bandwidth_wrap(ρ::Real, fixed::Bool)
+    fixed && return ParameterHandling.fixed(Float64(ρ))
+    return bounded(clamp(Float64(ρ), 1e-4, 1 - 1e-3), 0.0, 1.0)
 end
 
 function _init_params(θ::NamedTuple, fix::AbstractVector{Symbol})
     has_seasonal = isfinite(θ.period)
     return (
         σ_trend=_param_wrap(θ.σ_trend, :σ_trend ∈ fix),
-        l_trend=_trend_wrap(
-            θ.l_trend, :l_trend ∈ fix, _trend_lower_bound(θ.period, θ.bandwidth)
-        ),
+        l_trend=_trend_wrap(θ.l_trend, :l_trend ∈ fix, _trend_lower_bound(θ.period)),
         σ_seasonal=_param_wrap(
             has_seasonal ? θ.σ_seasonal : 0.0, :σ_seasonal ∈ fix || !has_seasonal
         ),
@@ -79,7 +84,11 @@ function _init_params(θ::NamedTuple, fix::AbstractVector{Symbol})
             ParameterHandling.fixed(Inf)
         end,
         period=ParameterHandling.fixed(Float64(θ.period)),    # always fixed
-        bandwidth=ParameterHandling.fixed(Float64(θ.bandwidth)), # always fixed
+        ρ=if has_seasonal
+            _bandwidth_wrap(θ.ρ, :bandwidth ∈ fix)
+        else
+            ParameterHandling.fixed(0.0)
+        end,
         σ_noise=_param_wrap(θ.σ_noise, :σ_noise ∈ fix),
     )
 end
@@ -111,7 +120,7 @@ function _destandardize_params(θ::NamedTuple, s_y::Real)
         σ_seasonal=has_seasonal ? θ.σ_seasonal * s_y : 0.0,
         l_seasonal=has_seasonal ? θ.l_seasonal : Inf,
         period=θ.period,
-        bandwidth=has_seasonal ? θ.bandwidth : Inf,
+        bandwidth=has_seasonal && θ.ρ > 0 ? θ.period / θ.ρ : Inf,
         σ_noise=θ.σ_noise > 0 ? θ.σ_noise * s_y : 0.0,
     )
 end

@@ -31,7 +31,7 @@ struct DirectAsymmetric <: AbstractEndpoints end
 """
     MinimumRevision(; degree=1, ratio=nothing)
 
-Asymmetric weights minimising the mean square revision error with respect to the
+Asymmetric weights minimizing the mean square revision error with respect to the
 symmetric filter (Proietti & Luati, 2008, §4), subject to reproducing polynomials of
 degree `degree` (`d*`), assuming the signal also has a term `δ jᵈ*⁺¹` and white noise of
 variance `σ²`.
@@ -41,7 +41,7 @@ variance `σ²`.
   (`0` is allowed for a moving average) and `h`.
 - `ratio`: `δ²/σ²`, a non-negative number or `Inf` (the limit in which degree `d* + 1`
   is also reproduced exactly, which needs `h > d* + 1`). With `nothing`, `fit` estimates
-  it by minimising the mean square revision error of the real-time filter (P&L §5), and
+  it by minimizing the mean square revision error of the real-time filter (P&L §5), and
   uses `0` if the series is too short for that. One ratio is used for every end point;
   an estimate of exactly `0` is common for noisy series.
 

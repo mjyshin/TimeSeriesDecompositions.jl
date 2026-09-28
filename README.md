@@ -81,10 +81,11 @@ If your data has a seasonal signal, e.g., annual seasonality with monthly data, 
 decomp = fit(Decomposition, y, t; period=12)
 ```
 
-If the seasonality slowly evolves with time, we can specify the `bandwidth` keyword argument
+The seasonal pattern may evolve slowly over time, over a timescale called the `bandwidth` (at least one period). Like the other hyperparameters, the bandwidth is estimated from the data, including whether the pattern is static (`bandwidth=Inf`), which is kept unless a likelihood-ratio test favors an evolving pattern. As with any hyperparameter, you can give it a starting value in `θ_init` or fix it in `θ_fixed`
 
 ```julia
-decomp = fit(Decomposition, y, t; period=12, bandwidth=36)
+decomp = fit(Decomposition, y, t; period=12, θ_fixed=(bandwidth=36,))   # evolves over ~3 years
+decomp = fit(Decomposition, y, t; period=12, θ_fixed=(bandwidth=Inf,))  # static
 ```
 
 ### 3.1&ensp;Outputs
