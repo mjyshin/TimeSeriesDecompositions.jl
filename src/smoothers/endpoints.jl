@@ -9,6 +9,8 @@ the grid extended beyond the data.
 """
 abstract type AbstractEndpoints end
 
+Base.getindex(e::AbstractEndpoints, name::Symbol) = getproperty(e, name)
+
 """
     NoEndpoints()
 

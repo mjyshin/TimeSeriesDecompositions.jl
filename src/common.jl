@@ -11,6 +11,8 @@ the method's (fitted or resolved) parameters. Fields can also be accessed by nam
 """
 abstract type AbstractDecomp end
 
+# Fields by name, d[:seasonal] for d.seasonal, for the decompositions and the other
+# structs they hold (components, fitted smoothers, smoothers and end-weight schemes)
 Base.getindex(d::AbstractDecomp, name::Symbol) = getproperty(d, name)
 
 """
@@ -21,6 +23,8 @@ bounds `lower[i]`/`upper[i]` at level `sig[i]`.
 
 Methods without uncertainty quantification (`X11Decomp`, `STLDecomp`) return point
 estimates: `std` is all `NaN` and `lower`, `upper` and `sig` are empty.
+
+Fields can also be accessed by name, `c[:mean]` for `c.mean`.
 """
 struct Component
     mean::Vector{Float64}
@@ -29,6 +33,8 @@ struct Component
     upper::Vector{Vector{Float64}}
     sig::Vector{Float64}
 end
+
+Base.getindex(c::Component, name::Symbol) = getproperty(c, name)
 
 # Point estimate without uncertainty
 function Component(mean::AbstractVector{<:Real})

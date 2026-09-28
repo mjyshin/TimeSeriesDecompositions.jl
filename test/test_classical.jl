@@ -24,6 +24,15 @@ final_trend(smoother) = (trend=(final=smoother,),)
     @test d.trend.mean .+ d.seasonal.mean .+ d.noise.mean ≈ _yc
     @test sum(d[c].mean for c in (:trend, :seasonal, :noise)) ≈ _yc
     @test d[:smoother] === d.smoother
+    # by name through the nested structs: components, fitted smoothers, smoothers and
+    # end-weight schemes
+    @test d[:trend][:mean] === d.trend.mean
+    f = d[:smoother][:trend][:final]
+    @test f[:values] === f.values
+    @test f[:model][:degree] == f.model.degree
+    if D === X11Decomp
+        @test f[:model][:endpoints][:ratio] == d.θ[:ratio_trend_final]
+    end
     @test (show(IOBuffer(), MIME"text/plain"(), d); true)
     # θ holds numbers only; the smoothers and fit information are elsewhere
     @test all(v -> v isa Real, values(d.θ))

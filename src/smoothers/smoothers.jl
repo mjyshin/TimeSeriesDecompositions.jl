@@ -44,6 +44,10 @@ struct FittedSmoother{M<:AbstractSmoother,S}
     estimated::NamedTuple
 end
 
+# Fields by name, f[:model] for f.model, as for the decompositions
+Base.getindex(f::FittedSmoother, name::Symbol) = getproperty(f, name)
+Base.getindex(m::AbstractSmoother, name::Symbol) = getproperty(m, name)
+
 function Base.show(io::IO, f::FittedSmoother)
     print(io, "FittedSmoother(", f.model, ", N=", length(f.t))
     isempty(f.estimated) || print(io, ", estimated: ", join(keys(f.estimated), ", "))

@@ -241,6 +241,10 @@ end
     for name in (:t, :trend, :seasonal, :noise, :rate, :θ)
         @test d[name] === getproperty(d, name)
     end
+    for name in (:mean, :std, :lower, :upper, :sig)
+        @test d[:trend][name] === getproperty(d.trend, name)
+    end
+    @test d[:θ][:period] == d.θ.period
     @test_throws Exception d[:level]    # FieldError (Julia ≥ 1.12) or ErrorException
 end
 
