@@ -236,6 +236,14 @@ end
     @test sprint(show, MIME"text/plain"(), predict(d, 1.0:3.0)) isa String
 end
 
+@testset "fields by name" begin
+    d = fit(GPDecomp, _y, _t; period=12.0, approx_rate=true)
+    for name in (:t, :trend, :seasonal, :noise, :rate, :θ)
+        @test d[name] === getproperty(d, name)
+    end
+    @test_throws Exception d[:level]    # FieldError (Julia ≥ 1.12) or ErrorException
+end
+
 @testset "deprecated Decomposition alias" begin
     @test GPDecompositions.Decomposition === GPDecomp
     @test GPDecomp <: AbstractDecomp

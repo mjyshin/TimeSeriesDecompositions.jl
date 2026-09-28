@@ -22,6 +22,8 @@ final_trend(smoother) = (trend=(final=smoother,),)
         @test isempty(c.lower) && isempty(c.upper) && isempty(c.sig)
     end
     @test d.trend.mean .+ d.seasonal.mean .+ d.noise.mean ≈ _yc
+    @test sum(d[c].mean for c in (:trend, :seasonal, :noise)) ≈ _yc
+    @test d[:smoother] === d.smoother
     @test (show(IOBuffer(), MIME"text/plain"(), d); true)
     # θ holds numbers only; the smoothers and fit information are elsewhere
     @test all(v -> v isa Real, values(d.θ))

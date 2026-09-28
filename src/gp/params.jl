@@ -1,7 +1,12 @@
+# Starting values on or within rounding of a bound, e.g. warm starts from a fit whose
+# optimum saturated there, are moved just inside it, where the transforms are defined
+_inside(v::Real, lb::Real) = max(Float64(v), lb + 1e-6 * max(abs(lb), 1e-6))
+
 function _param_wrap(v::Real, fixed::Bool)
     (v == 0.0 || !isfinite(v)) && return ParameterHandling.fixed(Float64(v))
     fixed && return ParameterHandling.fixed(Float64(v))
-    return positive(Float64(v))
+    ε = sqrt(eps(Float64))    # the lower bound of `positive`
+    return positive(_inside(v, ε), exp, ε)
 end
 
 # Lower bound on l_trend that separates the trend from the seasonal component,
@@ -26,7 +31,7 @@ function _trend_wrap(v::Real, fixed::Bool, lb::Real)
         )
         return ParameterHandling.fixed(Float64(v))
     end
-    return positive(Float64(v), exp, lb)
+    return positive(_inside(v, lb), exp, lb)
 end
 
 # Upper bound on l_seasonal (on the unit circle, where chord distances are ≤ 2). Beyond
@@ -46,10 +51,11 @@ function _seasonal_wrap(v::Real, fixed::Bool)
             throw(ArgumentError("fixed l_seasonal = $v must be at most $_L_SEASONAL_MAX"))
         return ParameterHandling.fixed(Float64(v))
     end
-    v < _L_SEASONAL_MAX || @info "θ_init.l_seasonal = $v is not below " *
+    v ≤ _L_SEASONAL_MAX || @info "θ_init.l_seasonal = $v is above " *
         "$_L_SEASONAL_MAX; starting the optimizer from l_seasonal = 1"
-    # bounded needs a starting value strictly inside (0, _L_SEASONAL_MAX)
-    v₀ = v < _L_SEASONAL_MAX ? clamp(Float64(v), 1e-6, _L_SEASONAL_MAX - 1e-6) : 1.0
+    # bounded needs a starting value strictly inside (0, _L_SEASONAL_MAX); one at the cap
+    # (e.g. a warm start from a saturated fit) is moved just below it
+    v₀ = v ≤ _L_SEASONAL_MAX ? clamp(Float64(v), 1e-6, _L_SEASONAL_MAX - 1e-6) : 1.0
     return bounded(v₀, 0.0, _L_SEASONAL_MAX)
 end
 

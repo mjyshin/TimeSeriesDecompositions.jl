@@ -5,10 +5,13 @@ Supertype of all seasonal-trend decompositions (`GPDecomp`, `X11Decomp`, `STLDec
 
 Every subtype has the fields `t`, `trend`, `seasonal`, `noise`, `rate` (each a
 [`Component`](@ref), `seasonal`/`noise` possibly `nothing`) and `θ`, a `NamedTuple` of
-the method's (fitted or resolved) parameters. Construct with `fit(D, y, t; ...)` and
-re-evaluate with `predict(d, t_new)`.
+the method's (fitted or resolved) parameters. Fields can also be accessed by name,
+`d[:seasonal]` for `d.seasonal`, e.g. to loop over components. Construct with
+`fit(D, y, t; ...)` and re-evaluate with `predict(d, t_new)`.
 """
 abstract type AbstractDecomp end
+
+Base.getindex(d::AbstractDecomp, name::Symbol) = getproperty(d, name)
 
 """
     Component

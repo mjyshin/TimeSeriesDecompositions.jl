@@ -33,6 +33,9 @@ end
 end
 
 @testset "θ_fixed respected" begin
+    # seed 31: the static fit's l_trend ends on its bound, the period, and warm-starts a
+    # bandwidth fit from there
+    Random.seed!(31)
     t = collect(1.0:30.0)
     y = sin.(2π .* t ./ 6) .+ 0.1 .* randn(30)
 
