@@ -1,30 +1,21 @@
 """
     AbstractDecomp
 
-Supertype of all seasonal-trend decompositions (`GPDecomp`, `X11Decomp`, `STLDecomp`).
-
-Every subtype has the fields `t`, `trend`, `seasonal`, `noise`, `rate` (each a
-[`Component`](@ref), `seasonal`/`noise` possibly `nothing`) and `θ`, a `NamedTuple` of
-the method's (fitted or resolved) parameters. Fields can also be accessed by name,
-`d[:seasonal]` for `d.seasonal`, e.g. to loop over components. Construct with
-`fit(D, y, t; ...)` and re-evaluate with `predict(d, t_new)`.
+Supertype of the seasonal-trend decompositions [`GPDecomp`](@ref), [`X11Decomp`](@ref) and
+[`STLDecomp`](@ref), with fields `t`, `trend`, `seasonal`, `noise`, `rate` (each a
+[`Component`](@ref) or `nothing`) and the hyperparameters `θ`. Fit with `fit(D, y, t; ...)`,
+evaluate at other times with `predict(d, t_new)`; `d[:name]` is `d.name`.
 """
 abstract type AbstractDecomp end
 
-# Fields by name, d[:seasonal] for d.seasonal, for the decompositions and the other
-# structs they hold (components, fitted smoothers, smoothers and end-weight schemes)
 Base.getindex(d::AbstractDecomp, name::Symbol) = getproperty(d, name)
 
 """
     Component
 
-Estimate of one component at the times `d.t`: `mean`, `std`, and credible-interval
-bounds `lower[i]`/`upper[i]` at level `sig[i]`.
-
-Methods without uncertainty quantification (`X11Decomp`, `STLDecomp`) return point
-estimates: `std` is all `NaN` and `lower`, `upper` and `sig` are empty.
-
-Fields can also be accessed by name, `c[:mean]` for `c.mean`.
+Estimate of one component at the times `d.t`: `mean`, `std`, and credible-interval bounds
+`lower[i]`, `upper[i]` at level `sig[i]`. Point estimates (`X11Decomp`, `STLDecomp`) have
+`std` all `NaN` and no intervals. `c[:name]` is `c.name`.
 """
 struct Component
     mean::Vector{Float64}
@@ -43,7 +34,7 @@ function Component(mean::AbstractVector{<:Real})
         fill(NaN, length(mean)),
         Vector{Float64}[],
         Vector{Float64}[],
-        Float64[],
+        Float64[]
     )
 end
 
@@ -55,8 +46,16 @@ function _subset(c::Component, idx)
 end
 _subset(::Nothing, idx) = nothing
 
-# Shared display helpers so that all decompositions print alike
-_fmt(x::AbstractFloat) = isfinite(x) ? string(round(x; sigdigits=4)) : string(x)
+function _check_keys(nt::NamedTuple, valid, name)
+    for key in keys(nt)
+        key ∈ valid || throw(ArgumentError("Unknown $name key :$key. Valid keys: $valid"))
+    end
+    return nothing
+end
+
+## Display ##
+
+_fmt(x::AbstractFloat) = isfinite(x) ? string(round(x; sigdigits = 4)) : string(x)
 _fmt(x) = string(x)
 
 function _show_header(io::IO, d::AbstractDecomp)
@@ -68,13 +67,12 @@ Base.show(io::IO, d::AbstractDecomp) = _show_header(io, d)
 
 _show_line(io::IO, label, value) = print(io, "\n  ", rpad(label, 11), ": ", value)
 
-# Width of the name column fitting every row of the sections, so that they align
 function _section_width(sections...)
     widths = (textwidth(string(name)) + 1 for rows in sections for (name, _) in rows)
-    return max(21, maximum(widths; init=0))
+    return max(21, maximum(widths; init = 0))
 end
 
-function _show_section(io::IO, label, rows; width=_section_width(rows))
+function _show_section(io::IO, label, rows; width = _section_width(rows))
     isempty(rows) && return nothing
     print(io, "\n  ", rpad(label, 11), ":")
     for (name, value) in rows

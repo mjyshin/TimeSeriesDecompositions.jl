@@ -63,34 +63,34 @@ We can run multiplicative decomposition by simply log-transforming the raw data 
 
 ## 3&ensp;Implementation
 
-The simplest use-case for this package is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal patterns. For this, we simply call the main function `fit(Decomposition, ...)` following the [`MultivariateStats.jl`](https://github.com/JuliaStats/MultivariateStats.jl) API:
+The simplest use-case for this package is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal patterns. For this, we simply call the main function `fit(GPDecomp, ...)` following the [`MultivariateStats.jl`](https://github.com/JuliaStats/MultivariateStats.jl) API:
 
 ```julia
-decomp = fit(Decomposition, y)
+decomp = fit(GPDecomp, y)
 ```
 
 By default, times $t_n = n$ are used. In order to specify (e.g., nonuniform) times, we use the optional second argument
 
 ```julia
-decomp = fit(Decomposition, y, t)
+decomp = fit(GPDecomp, y, t)
 ```
 
 If your data has a seasonal signal, e.g., annual seasonality with monthly data, we can specify the `period` keyword argument
 
 ```julia
-decomp = fit(Decomposition, y, t; period=12)
+decomp = fit(GPDecomp, y, t; period=12)
 ```
 
 The seasonal pattern may evolve slowly over time, over a timescale called the `bandwidth` (at least one period). Like the other hyperparameters, the bandwidth is estimated from the data, including whether the pattern is static (`bandwidth=Inf`), which is kept unless a likelihood-ratio test favors an evolving pattern. As with any hyperparameter, you can give it a starting value in `θ_init` or fix it in `θ_fixed`
 
 ```julia
-decomp = fit(Decomposition, y, t; period=12, θ_fixed=(bandwidth=36,))   # evolves over ~3 years
-decomp = fit(Decomposition, y, t; period=12, θ_fixed=(bandwidth=Inf,))  # static
+decomp = fit(GPDecomp, y, t; period=12, θ_fixed=(bandwidth=36,))   # evolves over ~3 years
+decomp = fit(GPDecomp, y, t; period=12, θ_fixed=(bandwidth=Inf,))  # static
 ```
 
 ### 3.1&ensp;Outputs
 
-The results are contained in a `Decomposition` struct. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise` and `decomp.rate`, respectively.
+The results are contained in a `GPDecomp` struct. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise` and `decomp.rate`, respectively.
 
 For example, the mean values for the GP corresponding to the trend, i.e., $\bar x_{1:N}$ can be accessed with
 
@@ -108,7 +108,7 @@ l_x̄, u_x̄ = decomp.trend.lower, decomp.trend.upper
 By default, we output the 50% and 90% CIs, but this could be changed during the fitting, for example to a 99% CI, with the `sig` keyword argument:
 
 ```julia
-decomp = fit(Decomposition, y, t; sig=[0.99])
+decomp = fit(GPDecomp, y, t; sig=[0.99])
 ```
 
 ### 3.2&ensp;Recomputing decompositions
@@ -125,11 +125,6 @@ decomp′ = predict(decomp, t′)
 
 ## References
 
-### Code for GP optimization and differentiation
+The GP model is built on [AbstractGPs.jl](https://github.com/JuliaGaussianProcesses/AbstractGPs.jl) and [KernelFunctions.jl](https://github.com/JuliaGaussianProcesses/KernelFunctions.jl), with hyperparameters fitted by [Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl) through [ParameterHandling.jl](https://github.com/JuliaGaussianProcesses/ParameterHandling.jl). The gradient backend is any [ADTypes.jl](https://github.com/SciML/ADTypes.jl) backend passed as `autodiff` (default `AutoZygote()`).
 
-1. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/extended_mauna_loa/
-2. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/differentiation/
-
-### On GPs more generally
-
-3. C. E. Rasmussen & C. K. I. Williams, Gaussian Processes for Machine Learning, the MIT Press, 2006, ISBN 026218253X. © 2006 Massachusetts Institute of Technology. [www.GaussianProcess.org/gpml](https://gaussianprocess.org/gpml/)
+1. C. E. Rasmussen & C. K. I. Williams, Gaussian Processes for Machine Learning, the MIT Press, 2006, ISBN 026218253X. © 2006 Massachusetts Institute of Technology. [www.GaussianProcess.org/gpml](https://gaussianprocess.org/gpml/)

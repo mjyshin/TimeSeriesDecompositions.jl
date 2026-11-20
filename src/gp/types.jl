@@ -1,13 +1,20 @@
+"""
+    GPDecomp <: AbstractDecomp
+
+Gaussian-process seasonal-trend decomposition, with posterior means, standard deviations and
+credible intervals of every component. `d.θ` holds the hyperparameters in the units of `y`
+and `d._fit_info.fit` the fit diagnostics. See `fit(GPDecomp, ...)`.
+"""
 struct GPDecomp <: AbstractDecomp
     t::Vector{Float64}
     trend::Component
-    seasonal::Union{Component,Nothing}
-    noise::Union{Component,Nothing}
+    seasonal::Union{Component, Nothing}
+    noise::Union{Component, Nothing}
     rate::Component
     sig::Vector{Float64}
     θ::NamedTuple
-    _posterior::Any
-    _fit_info::NamedTuple  # (ȳ, s_y, approx_rate, fit): fit has optimizer diagnostics
+    _posterior::NamedTuple  # (ks, data): standardized component kernels, AbstractGPs posterior data
+    _fit_info::NamedTuple   # (ȳ, s_y, approx_rate, fit)
 end
 
 const _GP_HYPERPARAMETERS = (
@@ -33,7 +40,7 @@ function Base.show(io::IO, ::MIME"text/plain", d::GPDecomp)
 
     comps = join(
         ["trend"; has_seasonal ? ["seasonal"] : []; has_noise ? ["noise"] : []; "rate"],
-        ", ",
+        ", "
     )
     _show_line(io, "components", comps)
     ci = join(round.(Int, 100 .* d.sig), "%, ") * "%"
@@ -41,14 +48,13 @@ function Base.show(io::IO, ::MIME"text/plain", d::GPDecomp)
     _show_line(io, "CI levels", ci)
     _show_line(io, "period", has_seasonal ? _fmt(θ.period) : "none")
 
-    kernels = Pair{Symbol,String}[:trend => _kernel_name(fi.kernels.trend)]
+    kernels = Pair{Symbol, String}[:trend => _kernel_name(fi.kernels.trend)]
     if has_seasonal
         k_seasonal = _kernel_name(fi.kernels.seasonal.effect)
         push!(kernels, :seasonal => "$k_seasonal, periodic, zero-mean")
         isfinite(θ.bandwidth) &&
             push!(kernels, :envelope => _kernel_name(fi.kernels.seasonal.envelope))
     end
-    # Structurally absent parameters (no seasonal, no noise) are neither estimated nor fixed
     present = filter(_GP_HYPERPARAMETERS) do k
         return (has_seasonal || k ∉ (:σ_seasonal, :l_seasonal, :bandwidth)) &&
                (has_noise || k != :σ_noise)

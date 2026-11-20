@@ -1,32 +1,14 @@
-const _FilterDecomp = Union{X11Decomp,STLDecomp}
+const _FilterDecomp = Union{X11Decomp, STLDecomp}
 
 """
     predict(d::Union{X11Decomp,STLDecomp}, t_new=d.t) -> typeof(d)
 
-Evaluate a filter-based decomposition at times `t_new` within the observed range. At the
-observed times the fitted components are returned as they are; in between they are
-interpolated, which adds no information:
-
-- the trend is the not-a-knot cubic spline through the fitted trend and the rate its
-  derivative, as at the observed times (both `NaN` where the trend is undefined). This
-  differs slightly from re-evaluating the trend smoother,
-  `predict(d.smoother.trend.final, t_new)`, whose derivative jumps at the samples;
-- the seasonal is the trigonometric interpolation across phases of the fitted seasonal:
-  the trigonometric polynomial of degree ≤ p/2 through the cycle of samples around each
-  time (for odd `p`, the average of the two nearly centered cycles). A fixed seasonal
-  pattern is interpolated exactly. In the interior of the series, for the `S(n × m)`
-  filters of [`X11Decomp`](@ref), this equals those filters applied at an intermediate
-  phase to the trigonometric interpolation of the detrended series; near the ends,
-  where the filters are truncated and the cycles shifted inward, it is only
-  approximately so. It assumes a smooth within-cycle
-  pattern: a sharp seasonal peak overshoots between the samples;
-- the noise is `NaN`, since nothing is observed there, so `trend + seasonal + noise`
-  recovers `y` only at the observed times.
-
-Times beyond the observed range throw a `DomainError`: filter-based decompositions do not
-forecast.
+Evaluate a filter-based decomposition at times `t_new` within the observed range by
+interpolating the fitted components: the trend by its not-a-knot cubic spline (the rate
+by the spline's derivative), the seasonal trigonometrically through the cycle of samples
+around each time, and the noise as `NaN` off the observed times.
 """
-function predict(d::_FilterDecomp, t_new::AbstractVector{<:Real}=d.t)
+function predict(d::_FilterDecomp, t_new::AbstractVector{<:Real} = d.t)
     (; Δt, grid) = d._fit_info
     trend, seasonal, noise, rate = _interpolate_components(
         grid, Δt, round(Int, d.θ.period / Δt), t_new
@@ -39,14 +21,13 @@ function predict(d::_FilterDecomp, t_new::AbstractVector{<:Real}=d.t)
         Component(rate),
         d.θ,
         d.smoother,
-        d._fit_info,
+        d._fit_info
     )
 end
 
-# The components at the times t_new, from their values at the grid times
 function _interpolate_components(grid::NamedTuple, Δt::Float64, p::Int, t_new)
     (; t, trend, seasonal, noise, rate) = grid
-    _check_in_range(t, t_new; atol=1e-8Δt)
+    _check_in_range(t, t_new; atol = 1e-8Δt)
     defined = any(isfinite, trend) ? _finite_range(trend) : (1:0)
     spline = length(defined) ≥ 3 ? _spline(trend[defined]) : nothing
     n = length(t_new)
@@ -84,7 +65,7 @@ function Base.show(io::IO, ::MIME"text/plain", d::_FilterDecomp)
         "smoothers" => stages,
         "estimated" => [row(k) for k in hyperparameters if k ∈ estimated],
         "fixed" => [row(k) for k in hyperparameters if k ∉ estimated],
-        "criteria" => collect(pairs(criteria)),
+        "criteria" => collect(pairs(criteria))
     )
     width = _section_width(last.(sections)...)
     for (label, rows) in sections

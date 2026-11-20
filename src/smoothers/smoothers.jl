@@ -1,41 +1,34 @@
 """
     AbstractSmoother
 
-Supertype of the smoothers: structs holding hyperparameters only. A hyperparameter left
-as `nothing` is chosen from the data when the smoother is fitted.
-
-`fit(model, y, t=eachindex(y))` fits the smoother to observations `y` at times `t` and
-returns a [`FittedSmoother`](@ref); `predict(f)` gives the fitted values at `t` and
-`predict(f, t_new)` evaluates the fitted curve at other times. To smooth another series
-with the same (resolved) hyperparameters, refit `f.model`.
+Supertype of the smoothers, structs of hyperparameters; one left as `nothing` is chosen
+from the data. `fit(model, y, t=eachindex(y))` returns a [`FittedSmoother`](@ref).
 """
 abstract type AbstractSmoother end
 
 """
     AbstractTrendSmoother <: AbstractSmoother
 
-Smoothers of a trend: [`LocalPolynomial`](@ref) (e.g. [`Henderson`](@ref)),
-[`MovingAverage`](@ref) and [`LOESS`](@ref).
+Trend smoothers: [`LocalPolynomial`](@ref), [`MovingAverage`](@ref) and [`LOESS`](@ref).
 """
 abstract type AbstractTrendSmoother <: AbstractSmoother end
 
 """
     AbstractSeasonalSmoother <: AbstractSmoother
 
-Smoothers of a seasonal pattern with a known period: [`SeasonalMovingAverage`](@ref)
-and [`StableSeasonal`](@ref). Fitted with `fit(model, y, t; period)`.
+Seasonal smoothers of known period, fitted with `fit(model, y, t; period)`:
+[`SeasonalMovingAverage`](@ref) and [`StableSeasonal`](@ref).
 """
 abstract type AbstractSeasonalSmoother <: AbstractSmoother end
 
 """
     FittedSmoother
 
-A smoother fitted to observations `y` at times `t` (sorted). Fields: `model` (the
-smoother with every hyperparameter resolved), `t`, `y`, `values` (the fitted values at
-`t`), `state` (method-specific precomputations) and `estimated` (the hyperparameters
-chosen from the data, with the criteria that chose them).
+A smoother fitted to `y` at sorted times `t`, with fields `model` (hyperparameters
+resolved), `t`, `y`, `values` (fitted at `t`), `state` and `estimated` (the hyperparameters
+chosen from the data and their criteria).
 """
-struct FittedSmoother{M<:AbstractSmoother,S}
+struct FittedSmoother{M <: AbstractSmoother, S}
     model::M
     t::Vector{Float64}
     y::Vector{Float64}
@@ -44,7 +37,6 @@ struct FittedSmoother{M<:AbstractSmoother,S}
     estimated::NamedTuple
 end
 
-# Fields by name, f[:model] for f.model, as for the decompositions
 Base.getindex(f::FittedSmoother, name::Symbol) = getproperty(f, name)
 Base.getindex(m::AbstractSmoother, name::Symbol) = getproperty(m, name)
 
@@ -58,26 +50,26 @@ end
     predict(f::FittedSmoother) -> Vector{Float64}
     predict(f::FittedSmoother, t_new; kwargs...) -> Vector{Float64}
 
-Fitted values at the observed times `f.t`, or the fitted curve evaluated at the times
-`t_new` (see the smoother's documentation for which times are allowed).
+Return the fitted values at `f.t`, or evaluate the fitted curve at the times `t_new`.
 """
 predict(f::FittedSmoother) = f.values
 
 fitted(f::FittedSmoother) = f.values
 residuals(f::FittedSmoother) = f.y - f.values
 
-# `fit(Model, y, t; hyperparameters...)` as shorthand for `fit(Model(; ...), y, t)`
+# fit(Model, y, t; hyperparameters...) for fit(Model(; ...), y, t)
 function fit(
-    ::Type{M}, y::AbstractVector{<:Real}, t::AbstractVector{<:Real}=eachindex(y); kwargs...
-) where {M<:AbstractTrendSmoother}
+        ::Type{M}, y::AbstractVector{<:Real}, t::AbstractVector{<:Real} = eachindex(y);
+        kwargs...
+) where {M <: AbstractTrendSmoother}
     return fit(M(; kwargs...), y, t)
 end
 
 function fit(
-    model::AbstractSmoother,
-    y::AbstractVector{<:Real},
-    t::AbstractVector{<:Real}=eachindex(y);
-    kwargs...,
+        model::AbstractSmoother,
+        y::AbstractVector{<:Real},
+        t::AbstractVector{<:Real} = eachindex(y);
+        kwargs...
 )
     f = _fit(model, y, t; kwargs...)
     _log_estimated(_name(model), f.estimated)
@@ -103,7 +95,7 @@ end
 function _spacing(t::AbstractVector{Float64})
     length(t) ≥ 2 || return nothing
     Δ = t[2] - t[1]
-    Δ > 0 && all(i -> isapprox(t[i + 1] - t[i], Δ; rtol=1e-8), 1:(length(t) - 1)) ||
+    Δ > 0 && all(i -> isapprox(t[i + 1] - t[i], Δ; rtol = 1e-8), 1:(length(t) - 1)) ||
         return nothing
     return Δ
 end
@@ -116,7 +108,7 @@ function _require_grid(t, name)
     return Δ
 end
 
-function _check_in_range(t, t_new; atol::Real=0.0)
+function _check_in_range(t, t_new; atol::Real = 0.0)
     t₁, t_N = first(t), last(t)
     i = findfirst(x -> !(t₁ - atol ≤ x ≤ t_N + atol), t_new)
     isnothing(i) || throw(DomainError(t_new[i], "t_new must lie within [$t₁, $t_N]"))
@@ -126,18 +118,14 @@ end
 # Fractional index of τ on the grid t₁, t₁ + Δ, …, snapped to an integer within 1e-8
 function _grid_position(t₁::Real, Δ::Real, τ::Real)
     c = (τ - t₁) / Δ + 1
-    return isapprox(c, round(c); atol=1e-8) ? round(c) : c
+    return isapprox(c, round(c); atol = 1e-8) ? round(c) : c
 end
 
-# Report hyperparameters that were chosen from the data. Silence with the Logging stdlib,
-# e.g. by filtering on `group == :estimated`.
+# Report hyperparameters chosen from the data, in log group :estimated
 function _log_estimated(context, estimated::NamedTuple)
     isempty(estimated) && return nothing
     @info "$context: hyperparameters chosen from the data" _group = :estimated estimated...
     return nothing
 end
 
-_nothing_or(x) = something(x, "nothing")
-
-# Name of a smoother in messages
 _name(m::AbstractSmoother) = nameof(typeof(m))

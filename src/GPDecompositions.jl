@@ -1,34 +1,35 @@
 module GPDecompositions
 
-using AbstractGPs
-using Distributions
-using ForwardDiff
+## Dependencies ##
+
+using ADTypes: AbstractADType, AutoZygote
+using AbstractGPs: GP, PosteriorGP, logpdf, posterior
+using Distributions: Chisq, Normal, quantile
+using HypothesisTests: LjungBoxTest, pvalue
 using Interpolations: Interpolations, BSpline, Cubic, Free, OnGrid, interpolate
-using LinearAlgebra: I, PosDefException, Symmetric, cholesky, diag, dot, tr
-using Optim
-using ParameterHandling
-using Reexport
+using LinearAlgebra: Cholesky, I, PosDefException, dot, tr
+using Optim: Optim, Brent, LBFGS, optimize
+using ParameterHandling: ParameterHandling, bounded, fixed, positive, value_flatten
+using Reexport: @reexport
 using SparseArrays: sparse, spdiagm
-using Statistics
-using StatsAPI
-using Stheno
-using Zygote
+using Statistics: mean, median, var
+using StatsBase: autocor, mean_and_std
+import StatsAPI: fit, predict, fitted, residuals
+using Zygote: Zygote    # loaded for the default `autodiff = AutoZygote()`
 
 @reexport using KernelFunctions
+using KernelFunctions: KernelFunctions, Kernel, Matern52Kernel, PeriodicTransform, ScaleTransform,
+                       ScaledKernel,
+                       TransformedKernel, WhiteKernel, kernelmatrix, kernelmatrix_diag,
+                       with_lengthscale
 
-import AbstractGPs: mean, cov, var
-import StatsAPI: fit, predict, fitted, residuals
-using AbstractGPs: AbstractGP, PosteriorGP
-using KernelFunctions: kernelmatrix
-using ParameterHandling: positive, fixed
+## Source ##
 
 include("common.jl")
 
 include("gp/types.jl")
-include("gp/utils.jl")
 include("gp/params.jl")
 include("gp/kernels.jl")
-include("gp/derivatives.jl")
 include("gp/fit.jl")
 include("gp/predict.jl")
 
@@ -46,6 +47,8 @@ include("classical/stages.jl")
 include("classical/x11.jl")
 include("classical/stl.jl")
 include("classical/classical.jl")
+
+## Exports ##
 
 export fit, predict, fitted, residuals
 export AbstractDecomp, Component, GPDecomp, X11Decomp, STLDecomp
