@@ -22,7 +22,7 @@ const _GUIDES = (trend = "\$\\bar x(t)\$", seasonal = "\$\\tilde x(t)\$",
 
     layout := (n, 1)
     legend --> false
-    size --> (800, 160 + 140n)
+    size --> (600, 200n)
     for (i, v) in enumerate(shown)
         c = d[v]
         color = findfirst(==(v), _COMPONENTS)
