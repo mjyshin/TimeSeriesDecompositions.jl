@@ -1,4 +1,4 @@
-using GPDecompositions
+using TimeSeriesDecompositions
 using Test
 
 const _t = collect(1.0:50.0)
@@ -127,7 +127,7 @@ end
     @test haskey(d.θ, :l_seasonal)
     @test haskey(d.θ, :bandwidth)
     @test haskey(d.θ, :σ_noise)
-    @test keys(d.θ) == GPDecompositions._GP_HYPERPARAMETERS
+    @test keys(d.θ) == TimeSeriesDecompositions._GP_HYPERPARAMETERS
 end
 
 @testset "quasi-periodic bandwidth" begin
@@ -165,7 +165,7 @@ end
 end
 
 @testset "kernel kwarg resolution" begin
-    R = GPDecompositions._resolve_kernels
+    R = TimeSeriesDecompositions._resolve_kernels
     M52, M32, SE = Matern52Kernel(), Matern32Kernel(), SEKernel()
     @test R(M52) == (trend = M52, seasonal = (effect = M52, envelope = M52))
     @test R(SE) == (trend = SE, seasonal = (effect = SE, envelope = SE))
@@ -264,12 +264,12 @@ end
 @testset "no old names" begin
     for name in (:GPDecomposition, :X11Decomposition, :STLDecomposition,
         :AbstractDecomposition, :GPDecomp, :X11Decomp, :STLDecomp, :AbstractDecomp)
-        @test !isdefined(GPDecompositions, name)
+        @test !isdefined(TimeSeriesDecompositions, name)
     end
 end
 
 @testset "plot recipe" begin
-    RecipesBase = GPDecompositions.RecipesBase
+    RecipesBase = TimeSeriesDecompositions.RecipesBase
     RecipesBase.is_key_supported(::Symbol) = true    # defined by Plots
     recipe(d; kw...) = RecipesBase.apply_recipe(Dict{Symbol, Any}(kw), d)
     attr(s, k) = s.plotattributes[k]

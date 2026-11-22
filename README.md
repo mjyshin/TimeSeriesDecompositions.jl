@@ -1,6 +1,6 @@
-# GPDecompositions
+# TimeSeriesDecompositions
 
-This Julia package runs a seasonal-trend decomposition (estimation and forecasting) of a univariate time series using Gaussian processes (GPs).
+This Julia package runs a seasonal-trend decomposition (estimation and forecasting) of a univariate time series using Gaussian processes (GPs) or the classical filters X-11 and STL.
 
 
 ## 1&ensp;Installation
@@ -11,17 +11,17 @@ Once you have installed [Julia](https://julialang.org/) (e.g., using [`juliaup`]
 2. Using the `dev` command (instead of `add` for registered packages)
 
 ```
-(myenv) pkg> dev /path/to/GPDecompositions
+(myenv) pkg> dev /path/to/TimeSeriesDecompositions
 ```
 
 You can alternatively run the following short script directly from the Julia REPL:
 
 ```julia
 using Pkg
-Pkg.develop("/path/to/GPDecompositions")
+Pkg.develop("/path/to/TimeSeriesDecompositions")
 ```
 
-In both methods, *remember to replace the* `/path/to/` *with the actual path to this repository on your machine*! (You can drop the `/path/to/` if you place the package within `~/.julia/dev/`.) Also, you only have to do the above steps once (per project environment), after which you can use `using GPDecompositions` to load it, as with any other Julia package.
+In both methods, *remember to replace the* `/path/to/` *with the actual path to this repository on your machine*! (You can drop the `/path/to/` if you place the package within `~/.julia/dev/`.) Also, you only have to do the above steps once (per project environment), after which you can use `using TimeSeriesDecompositions` to load it, as with any other Julia package.
 
 
 ## 2&ensp;Background

@@ -1,4 +1,4 @@
-using GPDecompositions
+using TimeSeriesDecompositions
 using DelimitedFiles
 using LinearAlgebra: dot
 using Logging
@@ -203,7 +203,7 @@ end
 end
 
 @testset "bandwidth selection scores all points with the end weights" begin
-    GP = GPDecompositions
+    GP = TimeSeriesDecompositions
     N, degree = length(_y), 3
     for endpoints in (DirectAsymmetric(), musgrave(3.5), MinimumRevision())
         f = @quietly lpf(; bandwidth = [8, 12, 16], endpoints)
@@ -254,7 +254,7 @@ end
         MovingAverage(; bandwidth = 12),
         LOESS(; span = 0.3)
     )
-        f = @inferred GPDecompositions._fit(model, _y, t)
+        f = @inferred TimeSeriesDecompositions._fit(model, _y, t)
         @test @inferred(predict(f, [10.5, 60.25])) isa Vector{Float64}
     end
     # a bandwidth left as nothing is chosen from 2h = 4 up to h = (N - 1) ÷ 4
@@ -401,7 +401,7 @@ end
         s = loess(y, t; span, degree, wts)
         @test predict(s, tn) ≈ row[5:21] atol = 1e-10
         @test predict(s) ≈ row[22:71] atol = 1e-10
-        L = GPDecompositions._hat_matrix(s.t, s.state.wts, span, 0.0, degree)
+        L = TimeSeriesDecompositions._hat_matrix(s.t, s.state.wts, span, 0.0, degree)
         @test sum(L[i, i] for i in 1:50) ≈ enp atol = 1e-10
     end
 end
@@ -414,7 +414,7 @@ end
     @test predict(s, tn) ≈ [loess_reference(t, y, 3.0, 1, x) for x in tn]
     # The larger of the span and fixed bandwidths
     both = loess(y, t; span = 0.1, bandwidth = 4.0, degree = 2)
-    q = GPDecompositions._span_neighbors(0.1, 60)
+    q = TimeSeriesDecompositions._span_neighbors(0.1, 60)
     λ(x) = max(2.0, sort(abs.(t .- x))[q])
     @test predict(both, tn) ≈ [loess_reference(t, y, λ(x), 2, x) for x in tn]
     # Span above one: √α times the distance to the farthest observation, as in R
@@ -426,7 +426,7 @@ end
     wts = rand(60)
     s = loess(y, t; span = 0.3, degree = 1, wts)
     x = t[20]
-    λq = sort(abs.(t .- x))[GPDecompositions._span_neighbors(0.3, 60)]
+    λq = sort(abs.(t .- x))[TimeSeriesDecompositions._span_neighbors(0.3, 60)]
     @test predict(s, [x]) ≈ [loess_reference(t, y, λq, 1, x; wts)]
 end
 
@@ -510,7 +510,7 @@ end
     t = collect(1.0:60)
     y = sin.(t ./ 8) .+ 0.2randn(rng, 60)
     # loess with a fixed window: refitting without observation i
-    f, lev = GPDecompositions._loess_fit(t, y, ones(60), 0.0, 6.0, 2)
+    f, lev = TimeSeriesDecompositions._loess_fit(t, y, ones(60), 0.0, 6.0, 2)
     for i in (1, 17, 30, 60)
         keep = setdiff(1:60, i)
         refit = predict(
@@ -519,8 +519,8 @@ end
     end
     # a symmetric local cubic: the weighted fit at t without t
     h = 5
-    g = GPDecompositions._grid_kernel(HendersonKernel(), h)
-    w = GPDecompositions._local_weights(g, (-h):h, 3)
+    g = TimeSeriesDecompositions._grid_kernel(HendersonKernel(), h)
+    w = TimeSeriesDecompositions._local_weights(g, (-h):h, 3)
     d = [k for k in (-h):h if k != 0]
     X = [k^j for k in d, j in 0:3]
     W = [g.κ(k) for k in d]

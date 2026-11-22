@@ -1,4 +1,4 @@
-using GPDecompositions
+using TimeSeriesDecompositions
 using Logging
 using Test
 using Random
@@ -125,7 +125,7 @@ end
 
 @testset "stage keywords" begin
     l, s = LOESS(), StableSeasonal()
-    @test X11() == X11(; GPDecompositions._X11_DEFAULTS...)
+    @test X11() == X11(; TimeSeriesDecompositions._X11_DEFAULTS...)
     # a component keyword sets every stage of that component
     m = X11(; trend = l)
     @test (m.trend_init, m.trend_interm, m.trend_final) == (l, l, l)
@@ -202,7 +202,7 @@ end
     # candidate trend lengths start at the period, so the trend cannot absorb the seasonal
     for (p, bandwidth) in ((2, 4), (4, 4), (7, 8), (12, 12), (24, 24))
         N = 10p
-        m, derived = GPDecompositions._resolve_trend(Henderson(), p, 1.0, N)
+        m, derived = TimeSeriesDecompositions._resolve_trend(Henderson(), p, 1.0, N)
         @test first(m.bandwidth) == bandwidth && last(m.bandwidth) == 2 * ((N - 1) ÷ 4)
         @test isempty(derived)
         @test fit(X11, randn(N); period = p).θ.bandwidth_trend_final ≥ bandwidth
@@ -222,7 +222,7 @@ end
 
 @testset "moving seasonality ratio (X-11 D9A)" begin
     # Pure noise: sd(ΔI) / sd(ΔS) = (10/7) / (√2/7) = 10/√2 for the 7-term average
-    msr = GPDecompositions._moving_seasonality_ratio(randn(400 * 12), 12)
+    msr = TimeSeriesDecompositions._moving_seasonality_ratio(randn(400 * 12), 12)
     @test msr ≈ 10 / √2 rtol = 0.05
     p, N = 12, 240
     moving = [(1 + 0.5sin(2π * t / 5p)) * 3sin(2π * t / p) + 0.4(t ÷ p) * cos(2π * t / p)
@@ -383,7 +383,7 @@ end
     # candidate spans start at the smallest odd number ≥ p + 3 (at least 7) of neighbors
     for (p, neighbors) in ((4, 7), (7, 11), (12, 15))
         N = 10p
-        m, _ = GPDecompositions._resolve_trend(LOESS(), p, 1.0, N)
+        m, _ = TimeSeriesDecompositions._resolve_trend(LOESS(), p, 1.0, N)
         @test round(Int, first(m.span) * N) == neighbors && last(m.span) == 1
         d = @quietly fit(X11, randn(N); period = p, trend_final = LOESS())
         @test d.θ.neighbors_trend_final ≥ neighbors
