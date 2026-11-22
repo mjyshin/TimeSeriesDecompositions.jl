@@ -1,49 +1,36 @@
-const _FilterDecomp = Union{X11Decomp,STLDecomp}
+const _FilterModel = Union{X11, STL}
 
-"""
-    predict(d::Union{X11Decomp,STLDecomp}, t_new=d.t) -> typeof(d)
-
-Evaluate a filter-based decomposition at times `t_new` within the observed range. At the
-observed times the fitted components are returned as they are; in between they are
-interpolated, which adds no information:
-
-- the trend is the not-a-knot cubic spline through the fitted trend and the rate its
-  derivative, as at the observed times (both `NaN` where the trend is undefined). This
-  differs slightly from re-evaluating the trend smoother,
-  `predict(d.θ.smoothers.trend, t_new)`, whose derivative jumps at the samples;
-- the seasonal is the trigonometric interpolation across phases of the fitted seasonal:
-  the trigonometric polynomial of degree ≤ p/2 through the cycle of samples around each
-  time (for odd `p`, the average of the two nearly centred cycles). A fixed seasonal
-  pattern is interpolated exactly. In the interior of the series, for the `S(n × m)`
-  filters of [`X11Decomp`](@ref), this equals those filters applied at an intermediate
-  phase to the trigonometric interpolation of the detrended series; near the ends,
-  where the filters are truncated and the cycles shifted inward, it is only
-  approximately so. It assumes a smooth within-cycle
-  pattern: a sharp seasonal peak overshoots between the samples;
-- the noise is `NaN`, since nothing is observed there, so `trend + seasonal + noise`
-  recovers `y` only at the observed times.
-
-Times beyond the observed range throw a `DomainError`: filter-based decompositions do not
-forecast.
-"""
-function predict(d::_FilterDecomp, t_new::AbstractVector{<:Real}=d.t)
-    trend, seasonal, noise, rate = _interpolate_components(
-        d.θ.grid, d.θ.Δt, round(Int, d.θ.period / d.θ.Δt), t_new
-    )
-    return typeof(d)(
-        collect(Float64, t_new),
-        Component(trend),
-        Component(seasonal),
-        Component(noise),
-        Component(rate),
-        d.θ,
-    )
+# Decomposition of a filter model from y, its trend and seasonal on the grid t of spacing Δt
+function _filter_decomposition(model::_FilterModel, r::_Report, y, t, Δt, period, trend,
+        seasonal, smoother)
+    noise = y - seasonal - trend
+    rate = _trend_rate(trend, Δt)
+    grid = (; t, trend, seasonal, noise, rate)
+    θ, fit_info = _finish(r, nameof(typeof(model)), Δt, grid)
+    return Decomposition(model, t, Float64(period), Component(trend), Component(seasonal),
+        Component(noise), Component(rate), θ, smoother, fit_info)
 end
 
-# The components at the times t_new, from their values at the grid times
+"""
+    predict(d::Decomposition{<:Union{X11,STL}}, t_new=d.t) -> Decomposition
+
+Evaluate a filter decomposition at times `t_new` within the observed range by interpolating
+the fitted components: the trend by its not-a-knot cubic spline (the rate by the spline's
+derivative), the seasonal trigonometrically through the cycle of samples around each time,
+and the noise as `NaN` off the observed times.
+"""
+function predict(d::Decomposition{<:_FilterModel}, t_new::AbstractVector{<:Real} = d.t)
+    (; Δt, grid) = d._fit_info
+    trend, seasonal, noise, rate = _interpolate_components(
+        grid, Δt, round(Int, d.period / Δt), t_new)
+    return Decomposition(d.model, collect(Float64, t_new), d.period, Component(trend),
+        Component(seasonal), Component(noise), Component(rate), d.θ, d.smoother,
+        d._fit_info)
+end
+
 function _interpolate_components(grid::NamedTuple, Δt::Float64, p::Int, t_new)
     (; t, trend, seasonal, noise, rate) = grid
-    _check_in_range(t, t_new; atol=1e-8Δt)
+    _check_in_range(t, t_new; atol = 1e-8Δt)
     defined = any(isfinite, trend) ? _finite_range(trend) : (1:0)
     spline = length(defined) ≥ 3 ? _spline(trend[defined]) : nothing
     n = length(t_new)
@@ -69,11 +56,22 @@ function _interpolate_components(grid::NamedTuple, Δt::Float64, p::Int, t_new)
     return out
 end
 
-function Base.show(io::IO, ::MIME"text/plain", d::_FilterDecomp)
+function Base.show(io::IO, ::MIME"text/plain", d::Decomposition{<:_FilterModel})
     _show_header(io, d)
     _show_line(io, "components", "trend, seasonal, noise, rate (point estimates)")
-    _show_line(io, "period", _fmt(d.θ.period))
-    _show_section(io, "smoothers", pairs(map(f -> f.model, d.θ.smoothers)))
-    _show_section(io, "estimated", pairs(d.θ.estimated))
+    _show_line(io, "period", _fmt(d.period))
+    stages = [stage => f.model for (stage, f) in pairs(d.smoother)]
+    (; estimated, derived, criteria) = d._fit_info
+    row(k) = k => (k ∈ derived ? "$(_fmt(d.θ[k])) (derived)" : d.θ[k])
+    sections = (
+        "smoothers" => stages,
+        "estimated" => [row(k) for k in keys(d.θ) if k ∈ estimated],
+        "fixed" => [row(k) for k in keys(d.θ) if k ∉ estimated],
+        "criteria" => collect(pairs(criteria))
+    )
+    width = _section_width(last.(sections)...)
+    for (label, rows) in sections
+        _show_section(io, label, rows; width)
+    end
     return nothing
 end

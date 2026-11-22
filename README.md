@@ -63,33 +63,44 @@ We can run multiplicative decomposition by simply log-transforming the raw data 
 
 ## 3&ensp;Implementation
 
-The simplest use-case for this package is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal patterns. For this, we simply call the main function `fit(Decomposition, ...)` following the [`MultivariateStats.jl`](https://github.com/JuliaStats/MultivariateStats.jl) API:
+A decomposition is a *model*, an immutable struct of settings, fitted to data with `fit(model, y, t; period)`, as with the algorithms of [SciML](https://sciml.ai/) or the models of [MLJ](https://github.com/JuliaAI/MLJ.jl). There are three models:
+
+- `GaussianProcess()`: Gaussian-process components with uncertainty, for any sampling
+- `X11()`: X-11-style moving-average filters, for uniform sampling and an integer period
+- `STL()`: a loess-based filter (a placeholder for the STL of Cleveland et al., 1990)
+
+The simplest use-case is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal pattern:
 
 ```julia
-decomp = fit(Decomposition, y)
+decomp = fit(GaussianProcess(), y)
 ```
 
-By default, times $t_n = n$ are used. In order to specify (e.g., nonuniform) times, we use the optional second argument
+By default, times $t_n = n$ are used. In order to specify (e.g., nonuniform) times, we use the optional second argument, and for a seasonal signal (e.g., annual seasonality with monthly data) the `period` keyword argument; the period describes the data, so it is given to `fit`, not to the model:
 
 ```julia
-decomp = fit(Decomposition, y, t)
+decomp = fit(GaussianProcess(), y, t; period=12)
 ```
 
-If your data has a seasonal signal, e.g., annual seasonality with monthly data, we can specify the `period` keyword argument
+The settings of a model are keyword arguments of its constructor, and `fit(M, y, t; period, settings...)` is shorthand for `fit(M(; settings...), y, t; period)`. The seasonal pattern may evolve slowly over time, over a timescale called the `bandwidth` (at least one period). Like the other hyperparameters, it is estimated from the data, including whether the pattern is static (`bandwidth=Inf`), which is kept unless a likelihood-ratio test favors an evolving pattern. As with any hyperparameter, you can give it a starting value in `θ_init` or fix it in `θ_fixed`:
 
 ```julia
-decomp = fit(Decomposition, y, t; period=12)
+decomp = fit(GaussianProcess(; θ_fixed=(bandwidth=36,)), y, t; period=12)   # evolves over ~3 years
+decomp = fit(GaussianProcess(; θ_fixed=(bandwidth=Inf,)), y, t; period=12)  # static
 ```
 
-If the seasonality slowly evolves with time, we can specify the `bandwidth` keyword argument
+The filter models are built from one smoother per stage, named `<component>_<stage>` in fitting order, and `trend` or `seasonal` sets every stage of a component:
 
 ```julia
-decomp = fit(Decomposition, y, t; period=12, bandwidth=36)
+model = X11(; trend_interm=Henderson(; bandwidth=12, endpoints=MinimumRevision(; ratio=0)))
+decomp = fit(model, y; period=7)
+decomp.smoother.trend_interm    # the fitted smoother of that stage
 ```
+
+A model can be reused across series, and changed with [Accessors.jl](https://github.com/JuliaObjects/Accessors.jl): `@set model.trend_final.bandwidth = 16`.
 
 ### 3.1&ensp;Outputs
 
-The results are contained in a `Decomposition` struct. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise` and `decomp.rate`, respectively.
+The results are contained in a `Decomposition` struct, which keeps the `model` it was fitted with. The primary results of interest, i.e., the estimated series $\bar x_{1:N}$, $\tilde x_{1:N}$, $\epsilon_{1:N}$ and $r_{1:N}$ can be found in `decomp.trend`, `decomp.seasonal`, `decomp.noise` and `decomp.rate`, respectively, and the fitted hyperparameters in `decomp.θ`.
 
 For example, the mean values for the GP corresponding to the trend, i.e., $\bar x_{1:N}$ can be accessed with
 
@@ -97,18 +108,14 @@ For example, the mean values for the GP corresponding to the trend, i.e., $\bar 
 x̄ = decomp.trend.mean
 ```
 
-The standard deviation as well as the lower and upper credible interval (CI) values are also outputted:
+The standard deviation as well as the lower and upper credible interval (CI) values are also outputted (the filter models give point estimates only):
 
 ```julia
 σ_x̄ = decomp.trend.std
 l_x̄, u_x̄ = decomp.trend.lower, decomp.trend.upper
 ```
 
-By default, we output the 50% and 90% CIs, but this could be changed during the fitting, for example to a 99% CI, with the `sig` keyword argument:
-
-```julia
-decomp = fit(Decomposition, y, t; sig=[0.99])
-```
+By default, we output the 50% and 90% CIs.
 
 ### 3.2&ensp;Recomputing decompositions
 
@@ -119,16 +126,13 @@ decomp′ = predict(decomp; sig=[0.68, 0.95])
 decomp′ = predict(decomp, t′)
 ```
 
-**NB:** Any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where $t_m' > t_N$), but one must be careful in interpreting of the results of such extrapolations, as one does with methods like (S)ARIMA.
+To refit new data with the same hyperparameters, fix them at the fitted values: `fit(GaussianProcess(; θ_fixed=decomp.θ), y′, t′; period=12)`.
+
+**NB:** For `GaussianProcess`, any of the $t_m'$ can be outside of the range $[t_1, t_N]$ ("forecasting" in the case where $t_m' > t_N$), but one must be careful in interpreting of the results of such extrapolations, as one does with methods like (S)ARIMA. The filter models predict within the observed range only.
 
 
 ## References
 
-### Code for GP optimization and differentiation
+The GP model is built on [AbstractGPs.jl](https://github.com/JuliaGaussianProcesses/AbstractGPs.jl) and [KernelFunctions.jl](https://github.com/JuliaGaussianProcesses/KernelFunctions.jl), with hyperparameters fitted by [Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl) using the exact gradient of the marginal likelihood.
 
-1. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/extended_mauna_loa/
-2. https://juliagaussianprocesses.github.io/Stheno.jl/dev/examples/differentiation/
-
-### On GPs more generally
-
-3. C. E. Rasmussen & C. K. I. Williams, Gaussian Processes for Machine Learning, the MIT Press, 2006, ISBN 026218253X. © 2006 Massachusetts Institute of Technology. [www.GaussianProcess.org/gpml](https://gaussianprocess.org/gpml/)
+1. C. E. Rasmussen & C. K. I. Williams, Gaussian Processes for Machine Learning, the MIT Press, 2006, ISBN 026218253X. © 2006 Massachusetts Institute of Technology. [www.GaussianProcess.org/gpml](https://gaussianprocess.org/gpml/)

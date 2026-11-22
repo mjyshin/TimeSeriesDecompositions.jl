@@ -1,119 +1,64 @@
-function _component_estimate(
-    post::PosteriorGP,
-    key::Symbol,
-    t::AbstractVector{Float64},
-    sig::AbstractVector{Float64},
-    ȳ::Float64,
-    s_y::Float64,
-    add_mean::Bool,
-)
-    fg = post(GPPPInput(key, t), 1e-12)
-    μ_std = mean(fg)
-    σ_std = sqrt.(max.(0.0, var(fg)))
-
-    μ = s_y .* μ_std .+ (add_mean ? ȳ : 0.0)
-    σ = s_y .* σ_std
-
-    z = map(sig) do p
-        return quantile(Normal(), (1 + p) / 2)
-    end
-    lower = [μ .- ζ .* σ for ζ in z]
-    upper = [μ .+ ζ .* σ for ζ in z]
-
-    return Component(μ, σ, lower, upper, sig)
-end
-
-function _approx_rate(
-    post::PosteriorGP,
-    t::AbstractVector{Float64},
-    sig::AbstractVector{Float64},
-    s_y::Float64,
-)
-    span_t = length(t) > 1 ? maximum(t) - minimum(t) : 1.0
-    h = max(span_t, 1.0) * 1e-6
-    μ_r = map(t) do ti
-        μ_hi = mean(post(GPPPInput(:x̄, [ti + h]), 1e-12))[1]
-        μ_lo = mean(post(GPPPInput(:x̄, [ti - h]), 1e-12))[1]
-        return s_y * (μ_hi - μ_lo) / (2h)
-    end
-    nan_vec = fill(NaN, length(t))
-    return Component(
-        μ_r, nan_vec, [copy(nan_vec) for _ in sig], [copy(nan_vec) for _ in sig], sig
-    )
-end
-
-# Derivative posterior via posterior covariance finite differences.
-# Var[f'(t)] ≈ (K_post(t-h,t-h) + K_post(t+h,t+h) - 2K_post(t-h,t+h)) / (4h²)
-function _full_rate(
-    post::PosteriorGP,
-    t::AbstractVector{Float64},
-    sig::AbstractVector{Float64},
-    s_y::Float64,
-)
-    span_t = length(t) > 1 ? maximum(t) - minimum(t) : 1.0
-    h = max(span_t, 1.0) * 1e-5
-    n = length(t)
-
-    t_paired = [t .- h; t .+ h]   # [t_lo; t_hi], length 2n
-    fg = post(GPPPInput(:x̄, t_paired), 1e-12)
-    μ_all = mean(fg)
-    K = cov(fg)   # 2n × 2n
-
-    μ_r = s_y .* (μ_all[(n + 1):end] .- μ_all[1:n]) ./ (2h)
-
-    var_lo = diag(K[1:n, 1:n])
-    var_hi = diag(K[(n + 1):end, (n + 1):end])
-    cov_cross = diag(K[1:n, (n + 1):end])
-    σ_r = s_y .* sqrt.(max.(0.0, var_lo .+ var_hi .- 2 .* cov_cross) ./ (4h^2))
-
+function _component(μ::Vector{Float64}, σ::Vector{Float64}, sig::Vector{Float64})
     z = [quantile(Normal(), (1 + p) / 2) for p in sig]
-    lower = [μ_r .- ζ .* σ_r for ζ in z]
-    upper = [μ_r .+ ζ .* σ_r for ζ in z]
-    return Component(μ_r, σ_r, lower, upper, sig)
+    return Component(μ, σ, [μ .- ζ .* σ for ζ in z], [μ .+ ζ .* σ for ζ in z], sig)
 end
 
-function _build_decomposition(
-    post::PosteriorGP,
-    t_out::AbstractVector{Float64},
-    params::NamedTuple,
-    ȳ::Float64,
-    s_y::Float64;
-    sig::AbstractVector{Float64},
-    approx_rate::Bool,
-    fit_info::NamedTuple,
-)
-    sig = sort(unique(sig))
-    has_seasonal = isfinite(params.period)
+# Posterior of one additive component: its prior with the data of the observation posterior
+# (cov(component, y) = component kernel). AbstractGPs has no public API for this.
+function _component_estimate(k::Kernel, data, t, sig, shift, s_y)
+    f = PosteriorGP(GP(k), data)
+    μ = s_y .* mean(f, t) .+ shift
+    return _component(μ, s_y .* sqrt.(max.(var(f, t), 0)), sig)
+end
 
-    trend = _component_estimate(post, :x̄, t_out, sig, ȳ, s_y, true)
-    seasonal =
-        has_seasonal ? _component_estimate(post, :x̃, t_out, sig, 0.0, s_y, false) : nothing
-    has_noise = params.σ_noise > 0
-    noise = has_noise ? _component_estimate(post, :ϵ, t_out, sig, 0.0, s_y, false) : nothing
-    _rate_estimate = approx_rate ? _approx_rate : _full_rate
-    rate = _rate_estimate(post, t_out, sig, s_y)
+# Posterior of the noise, independent across observations: σ²α and σ² - σ⁴[K⁻¹]ᵢᵢ at the
+# fitted observations, the prior of a new observation's noise at other times
+function _noise_estimate(σ²::Float64, data, t, sig, s_y)
+    (; α, C, x) = data
+    if t == x
+        μ, v = σ² .* α, σ² .- σ²^2 .* diag(inv(C))
+    else
+        μ, v = zeros(length(t)), fill(σ², length(t))
+    end
+    return _component(s_y .* μ, s_y .* sqrt.(max.(v, 0)), sig)
+end
 
-    fi = (; ȳ, s_y, approx_rate, fit=fit_info)
-    return GPDecomp(t_out, trend, seasonal, noise, rate, sig, params, post, fi)
+# Posterior of the trend's derivative, by central differences of step h in the trend kernel
+# (forward-mode AD of Matérn kernels is NaN at coincident points)
+function _rate_estimate(k::Kernel, data, t, sig, s_y, h; approx::Bool)
+    (; α, C, x) = data
+    Dk = (kernelmatrix(k, x, t .+ h) .- kernelmatrix(k, x, t .- h)) ./ 2h
+    μ = s_y .* (Dk' * α)
+    approx && return _component(μ, fill(NaN, length(t)), sig)
+    D²k = (kernelmatrix_diag(k, t .+ h) .+ kernelmatrix_diag(k, t .- h) .-
+           2 .* kernelmatrix_diag(k, t .+ h, t .- h)) ./ 4h^2
+    v = D²k .- vec(sum(abs2, C.L \ Dk; dims = 1))
+    return _component(μ, s_y .* sqrt.(max.(v, 0)), sig)
+end
+
+function _build_decomposition(model::GaussianProcess, fit_info::NamedTuple,
+        t::AbstractVector{<:Real}, period::Float64, θ::NamedTuple; sig)
+    all(0 .< sig .< 1) || throw(DomainError(sig, "sig levels must be in (0, 1)"))
+    t, sig = collect(Float64, t), sort(unique(Float64.(sig)))
+    (; posterior, ȳ, s_y) = fit_info
+    (; ks, data) = posterior
+    estimate(k, shift = 0.0) = isnothing(k) ? nothing :
+                               _component_estimate(k, data, t, sig, shift, s_y)
+    h = 1e-4 * (isfinite(θ.l_trend) ? θ.l_trend : 1.0)
+    rate = _rate_estimate(ks.trend, data, t, sig, s_y, h; approx = model.approx_rate)
+    return Decomposition(model, t, period, estimate(ks.trend, ȳ), estimate(ks.seasonal),
+        ks.noise > 0 ? _noise_estimate(ks.noise, data, t, sig, s_y) : nothing, rate, θ,
+        nothing, fit_info)
 end
 
 """
-    predict(d::GPDecomp, t_new=d.t; sig=d.sig) -> GPDecomp
+    predict(d::Decomposition{<:GaussianProcess}, t_new=d.t; sig=d.trend.sig)
 
-Re-evaluate a fitted decomposition at new time points without re-fitting.
+Evaluate a fitted decomposition at the times `t_new`, with credible levels `sig`, without
+refitting. The noise is independent across observations: at `t_new = d.t` it is the
+posterior of each observation's noise, elsewhere that of a new observation (mean 0).
 """
-function predict(
-    d::GPDecomp, t_new::AbstractVector{<:Real}=d.t; sig::AbstractVector{<:Real}=d.sig
-)
-    fi = d._fit_info
-    return _build_decomposition(
-        d._posterior,
-        Float64.(t_new),
-        d.θ,
-        fi.ȳ,
-        fi.s_y;
-        sig=Float64.(sig),
-        approx_rate=fi.approx_rate,
-        fit_info=fi.fit,
-    )
+function predict(d::Decomposition{<:GaussianProcess}, t_new::AbstractVector{<:Real} = d.t;
+        sig::AbstractVector{<:Real} = d.trend.sig)
+    return _build_decomposition(d.model, d._fit_info, t_new, d.period, d.θ; sig)
 end

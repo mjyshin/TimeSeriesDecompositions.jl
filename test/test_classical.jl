@@ -2,16 +2,17 @@ using GPDecompositions
 using Logging
 using Test
 using Random
+using Statistics: mean
 
 Random.seed!(1)
 
 const _tc = collect(2000 .+ (0:119) ./ 12)    # monthly, 10 years
 const _yc = sin.(2π .* _tc) .+ 0.2 .* (_tc .- 2000) .+ 0.1 .* randn(120)
 
-@testset "$D basic API" for D in (X11Decomp, STLDecomp)
-    d = fit(D, _yc, _tc; period=1.0)
-    @test d isa D
-    @test d isa AbstractDecomp
+@testset "$D basic API" for D in (X11, STL)
+    d = fit(D, _yc, _tc; period = 1.0)
+    @test d isa Decomposition{D}
+    @test d.model == D()
     @test d.t == _tc
     for c in (d.trend, d.seasonal, d.noise, d.rate)
         @test c isa Component
@@ -20,21 +21,38 @@ const _yc = sin.(2π .* _tc) .+ 0.2 .* (_tc .- 2000) .+ 0.1 .* randn(120)
         @test isempty(c.lower) && isempty(c.upper) && isempty(c.sig)
     end
     @test d.trend.mean .+ d.seasonal.mean .+ d.noise.mean ≈ _yc
+    @test sum(d[c].mean for c in (:trend, :seasonal, :noise)) ≈ _yc
+    @test d[:smoother] === d.smoother
+    # by name through the nested structs: components, fitted smoothers, smoothers and
+    # end-weight schemes
+    @test d[:trend][:mean] === d.trend.mean
+    f = d[:smoother][:trend_final]
+    @test f[:values] === f.values
+    @test f[:model][:degree] == f.model.degree
+    if D === X11
+        @test f[:model][:endpoints][:ratio] == d.θ[:ratio_trend_final]
+    end
     @test (show(IOBuffer(), MIME"text/plain"(), d); true)
+    # θ holds numbers only; the smoothers and fit information are elsewhere
+    @test all(v -> v isa Real, values(d.θ))
+    @test d.period == 1.0
+    @test !haskey(d.θ, :period)
+    @test d.smoother.trend_final isa FittedSmoother
+    @test d.smoother.trend_init.model isa MovingAverage
 end
 
-@testset "$D default t and unsorted input" for D in (X11Decomp, STLDecomp)
-    d = fit(D, _yc; period=12)
+@testset "$D default t and unsorted input" for D in (X11, STL)
+    d = fit(D, _yc; period = 12)
     @test d.t == 1:120
     perm = reverse(eachindex(_tc))
-    @test fit(D, _yc[perm], _tc[perm]; period=1.0).trend.mean ≈
-        fit(D, _yc, _tc; period=1.0).trend.mean
+    @test fit(D, _yc[perm], _tc[perm]; period = 1.0).trend.mean ≈
+          fit(D, _yc, _tc; period = 1.0).trend.mean
 end
 
-@testset "$D predict ($trend)" for D in (X11Decomp, STLDecomp),
+@testset "$D predict ($trend)" for D in (X11, STL),
     trend in (Henderson(), MovingAverage(), LOESS())
 
-    d = fit(D, _yc, _tc; period=1.0, trend)
+    d = fit(D, _yc, _tc; period = 1.0, trend_final = trend)
     for c in (:trend, :seasonal, :noise, :rate)
         @test isequal(getfield(predict(d), c).mean, getfield(d, c).mean)
     end
@@ -42,7 +60,7 @@ end
     idx = [100, 3, 3, 57]
     t_grid = 2000 .+ (idx .- 1) ./ 12
     d2 = predict(d, t_grid)
-    @test d2 isa D
+    @test d2 isa Decomposition{D}
     @test d2.t == t_grid
     @test isequal(d2.seasonal.mean, d.seasonal.mean[idx])
     @test isequal(d2.trend.mean, d.trend.mean[idx])
@@ -62,91 +80,144 @@ end
     @test isequal(
         predict(d, _tc[[1, end]] .+ [-1e-12, 1e-12]).rate.mean, d.rate.mean[[1, end]]
     )
-    @test (@inferred predict(d, [_tc[60] + 0.3 / 12])) isa D
+    @test (@inferred predict(d, [_tc[60] + 0.3 / 12])) isa Decomposition{D}
     @test_throws DomainError predict(d, [_tc[1] - 1e-6])
     @test_throws DomainError predict(d, [_tc[end] + 1e-6])
 end
 
-@testset "$D predict off the grid for period $p" for D in (X11Decomp, STLDecomp),
+@testset "$D predict off the grid for period $p" for D in (X11, STL),
     p in (2, 5)
 
     N = 10p
     x = 1:N
     y = 0.1x .+ cospi.(2 .* x ./ p .+ 0.2) .* (p > 2) .+ 0.05 .* randn(N)
-    d = fit(D, y, x; period=p)
+    d = fit(D, y, x; period = p)
     k = N ÷ 2
     near = predict(d, k .+ [-1e-6, 1e-6])
     @test near.seasonal.mean ≈ fill(d.seasonal.mean[k], 2) atol = 1e-4
     @test near.trend.mean ≈ fill(d.trend.mean[k], 2) atol = 1e-4
     @test near.rate.mean ≈ fill(d.rate.mean[k], 2) atol = 1e-4
-    @test all(isfinite, predict(d, range(1, N; length=3N)).seasonal.mean)
+    @test all(isfinite, predict(d, range(1, N; length = 3N)).seasonal.mean)
 end
 
-@testset "$D predict: NaN where the trend is undefined" for D in (X11Decomp, STLDecomp)
-    d = fit(D, _yc, _tc; period=1.0, trend=MovingAverage())
+@testset "$D predict: NaN where the trend is undefined" for D in (X11, STL)
+    d = fit(D, _yc, _tc; period = 1.0, trend_final = MovingAverage())
     between = predict(d, _tc[1:2] .+ 1 / 24)
     @test all(isnan, between.trend.mean) && all(isnan, between.rate.mean)
     @test all(isfinite, between.seasonal.mean)
 end
 
-@testset "$D input validation" for D in (X11Decomp, STLDecomp)
+@testset "$D input validation" for D in (X11, STL)
     nonuniform = [_tc[1:(end - 1)]; _tc[end] + 1]
-    @test_throws ArgumentError fit(D, _yc, nonuniform; period=1.0)
-    @test_throws ArgumentError fit(D, _yc, _tc; period=0.1)    # non-integer p
-    @test_throws DomainError fit(D, _yc, _tc; period=-1.0)
-    @test_throws ArgumentError fit(D, _yc[1:20], _tc[1:20]; period=1.0)
-    @test_throws DimensionMismatch fit(D, _yc, _tc[1:(end - 1)]; period=1.0)
+    @test_throws ArgumentError fit(D, _yc, nonuniform; period = 1.0)
+    @test_throws ArgumentError fit(D, _yc, _tc; period = 0.1)    # non-integer p
+    @test_throws DomainError fit(D, _yc, _tc; period = -1.0)
+    @test_throws ArgumentError fit(D, _yc[1:20], _tc[1:20]; period = 1.0)
+    @test_throws DimensionMismatch fit(D, _yc, _tc[1:(end - 1)]; period = 1.0)
+    # the stage keywords, checked when the model is built
+    @test_throws ArgumentError D(; level = LOESS())
+    @test_throws ArgumentError D(; trend_first = LOESS())
+    @test_throws ArgumentError D(; trend = StableSeasonal())
+    @test_throws ArgumentError D(; seasonal_final = LOESS())
+    @test_throws ArgumentError D(; trend = 1.0)
+    @test_throws ArgumentError D(; trend = LOESS(), trend_final = LOESS())
 end
 
-@testset "X11Decomp options" begin
-    d = fit(X11Decomp, _yc, _tc; period=1.0)
-    f = d.θ.smoothers.trend
+@testset "stage keywords" begin
+    l, s = LOESS(), StableSeasonal()
+    @test X11() == X11(; GPDecompositions._X11_DEFAULTS...)
+    # a component keyword sets every stage of that component
+    m = X11(; trend = l)
+    @test (m.trend_init, m.trend_interm, m.trend_final) == (l, l, l)
+    @test m.seasonal_init == X11().seasonal_init
+    m = X11(; seasonal = s)
+    @test (m.seasonal_init, m.seasonal_final) == (s, s)
+    # a stage keyword sets one stage and keeps the others
+    m = X11(; trend_final = l)
+    @test (m.trend_init, m.trend_interm, m.trend_final) == (MovingAverage(), nothing, l)
+    @test STL(; trend = l).trend_init == l
+    # the fit and the positional constructor
+    d = fit(X11(; trend = l), _yc, _tc; period = 1.0)
+    @test d.smoother.trend_init.model isa LOESS
+    @test d.smoother.trend_interm.model isa LOESS
+    @test d.smoother.trend_final.model isa LOESS
+    @test keys(d.smoother) == fieldnames(X11)
+    @test_throws ArgumentError X11(l, s, nothing, nothing, s)
+    # shown by the settings that differ from the defaults
+    @test sprint(show, X11()) == "X11()"
+    @test sprint(show, STL(; seasonal_final = SeasonalMovingAverage(; n = 3, m = 3))) ==
+          "STL(seasonal_final=SeasonalMovingAverage(n=3, m=3))"
+end
+
+@testset "X11 options" begin
+    d = fit(X11, _yc, _tc; period = 1.0)
+    f = d.smoother.trend_final
     @test f isa FittedSmoother{<:LocalPolynomial{HendersonKernel}}
-    @test f.model.bandwidth ≈ 1.0    # 12 months
+    @test f.model.bandwidth ≥ 1.0 - 1e-8    # at least 12 months
     @test f.model.endpoints isa MinimumRevision{Float64}
     @test f.model.endpoints.degree == 1
-    @test d.θ.estimated.trend_bandwidth ≈ 1.0
-    @test d.θ.estimated.ratio == f.model.endpoints.ratio
-    @test haskey(d.θ.estimated, :msr)
-    @test d.θ.smoothers.seasonal.model isa Union{SeasonalMovingAverage,StableSeasonal}
-    m = fit(
-        X11Decomp,
+    @test d.θ.bandwidth_trend_final == f.model.bandwidth
+    @test :bandwidth_trend_final ∈ d._fit_info.estimated
+    @test haskey(d._fit_info.criteria, :cv_score_trend_final)
+    @test d.θ.ratio_trend_final == f.model.endpoints.ratio
+    @test :ratio_trend_final ∈ d._fit_info.estimated
+    @test haskey(d._fit_info.criteria, :msre_trend_final)
+    @test haskey(d._fit_info.criteria, :msr)
+    @test d.θ.ratio_trend_interm == 0.0
+    @test :ratio_trend_interm ∉ d._fit_info.estimated
+    @test d.smoother.seasonal_final.model isa Union{SeasonalMovingAverage, StableSeasonal}
+    musgrave_trend = Henderson(; bandwidth = 1.0, endpoints = musgrave(3.5))
+    m = fit(X11(; trend_final = musgrave_trend), _yc, _tc; period = 1.0)
+    @test m.smoother.trend_final.model.endpoints.ratio ≈ 4 / (π * 3.5^2)
+    @test m.θ.ratio_trend_final ≈ 4 / (π * 3.5^2)
+    @test :ratio_trend_final ∉ m._fit_info.estimated
+    @test m.trend.mean != d.trend.mean
+    h23 = fit(X11, _yc, _tc; period = 1.0, trend_final = Henderson(; bandwidth = 22 / 12))
+    @test h23.smoother.trend_final.model.bandwidth == 22 / 12
+    @test :bandwidth_trend_final ∉ h23._fit_info.derived
+    s = fit(X11, _yc, _tc; period = 1.0,
+        seasonal_final = StableSeasonal())
+    @test s.smoother.seasonal_final.model isa StableSeasonal
+    @test !haskey(s._fit_info.criteria, :msr)
+    @test !haskey(s.θ, :n_seasonal_final)
+    dh = fit(
+        X11,
         _yc,
         _tc;
-        period=1.0,
-        trend=Henderson(; bandwidth=1.0, endpoints=musgrave(3.5)),
+        period = 1.0,
+        trend_final = Henderson(; bandwidth = 1.0, endpoints = NoEndpoints())
     )
-    @test m.θ.smoothers.trend.model.endpoints.ratio ≈ 4 / (π * 3.5^2)
-    @test m.trend.mean != d.trend.mean
-    h23 = fit(X11Decomp, _yc, _tc; period=1.0, trend=Henderson(; bandwidth=22 / 12))
-    @test h23.θ.smoothers.trend.model.bandwidth == 22 / 12
-    s = fit(X11Decomp, _yc, _tc; period=1.0, seasonal=StableSeasonal())
-    @test s.θ.smoothers.seasonal.model isa StableSeasonal
-    @test !haskey(s.θ.estimated, :msr)
-    dh = fit(X11Decomp, _yc, _tc; period=1.0, trend=Henderson(; endpoints=NoEndpoints()))
     @test all(isfinite, dh.trend.mean[7:(end - 6)])
     @test all(isnan, dh.trend.mean[[1:6; (end - 5):end]])
     @test all(isfinite, dh.rate.mean[7:(end - 6)])
-    @test all(isfinite, dh.seasonal.mean)    # NaN preliminary ends are handled by phase
-    ma = fit(X11Decomp, _yc, _tc; period=1.0, trend=MovingAverage())
-    @test ma.θ.estimated.trend_bandwidth ≈ 1.0
+    @test all(isfinite, dh.seasonal.mean)    # NaN intermediate ends are handled by phase
+    ma = fit(
+        X11, _yc, _tc; period = 1.0, trend_final = MovingAverage())
+    @test ma.θ.bandwidth_trend_final ≈ 1.0
     @test all(isnan, ma.trend.mean[[1:6; (end - 5):end]])
     @test all(isfinite, ma.trend.mean[7:(end - 6)])
 end
 
-@testset "X11Decomp period-general defaults" begin
+@testset "X11 period-general defaults" begin
+    # candidate trend lengths start at the period, so the trend cannot absorb the seasonal
     for (p, bandwidth) in ((2, 4), (4, 4), (7, 8), (12, 12), (24, 24))
-        y = randn(10p)
-        @test fit(X11Decomp, y; period=p).θ.smoothers.trend.model.bandwidth == bandwidth
+        N = 10p
+        m, derived = GPDecompositions._resolve_trend(Henderson(), p, 1.0, N)
+        @test first(m.bandwidth) == bandwidth && last(m.bandwidth) == 2 * ((N - 1) ÷ 4)
+        @test isempty(derived)
+        @test fit(X11, randn(N); period = p).θ.bandwidth_trend_final ≥ bandwidth
     end
     # Seasonal filters needing more cycles than available are shortened
-    d = fit(X11Decomp, randn(6 * 12); period=12, seasonal=SeasonalMovingAverage(; n=3, m=9))
-    @test d.θ.smoothers.seasonal.model == SeasonalMovingAverage(; n=3, m=3)
-    @test d.θ.smoothers.preliminary_seasonal.model == SeasonalMovingAverage(; n=3, m=3)
-    d = fit(X11Decomp, randn(4 * 12); period=12)
-    @test d.θ.smoothers.seasonal.model isa StableSeasonal
-    @test d.θ.smoothers.preliminary_seasonal.model isa StableSeasonal
-    @test_throws ArgumentError fit(X11Decomp, randn(2 * 12 + 11); period=12)
+    s39 = SeasonalMovingAverage(; n = 3, m = 9)
+    d = fit(X11, randn(6 * 12); period = 12, seasonal_final = s39)
+    @test d.smoother.seasonal_final.model == SeasonalMovingAverage(; n = 3, m = 3)
+    @test (d.θ.n_seasonal_final, d.θ.m_seasonal_final) == (3, 3)
+    @test haskey(d._fit_info.criteria, :note_seasonal_final)
+    @test d.smoother.seasonal_init.model == SeasonalMovingAverage(; n = 3, m = 3)
+    d = fit(X11, randn(4 * 12); period = 12)
+    @test d.smoother.seasonal_final.model isa StableSeasonal
+    @test d.smoother.seasonal_init.model isa StableSeasonal
+    @test_throws ArgumentError fit(X11, randn(2 * 12 + 11); period = 12)
 end
 
 @testset "moving seasonality ratio (X-11 D9A)" begin
@@ -154,36 +225,39 @@ end
     msr = GPDecompositions._moving_seasonality_ratio(randn(400 * 12), 12)
     @test msr ≈ 10 / √2 rtol = 0.05
     p, N = 12, 240
-    moving = [
-        (1 + 0.5sin(2π * t / 5p)) * 3sin(2π * t / p) + 0.4(t ÷ p) * cos(2π * t / p) for
-        t in 1:N
-    ]
-    d = fit(X11Decomp, moving .+ 0.02randn(N); period=p)
-    @test d.θ.estimated.msr < 2.5
-    @test d.θ.smoothers.seasonal.model == SeasonalMovingAverage(; n=3, m=3)
+    moving = [(1 + 0.5sin(2π * t / 5p)) * 3sin(2π * t / p) + 0.4(t ÷ p) * cos(2π * t / p)
+              for
+              t in 1:N]
+    d = fit(X11, moving .+ 0.02randn(N); period = p)
+    @test d._fit_info.criteria.msr < 2.5
+    @test d.smoother.seasonal_final.model == SeasonalMovingAverage(; n = 3, m = 3)
+    @test (d.θ.n_seasonal_final, d.θ.m_seasonal_final) == (3, 3)
+    @test [:n_seasonal_final, :m_seasonal_final] ⊆ d._fit_info.estimated
     fixed = [3sin(2π * t / p) for t in 1:N]
-    d = fit(X11Decomp, fixed .+ randn(N); period=p)
-    @test d.θ.estimated.msr > 6.5
-    @test d.θ.smoothers.seasonal.model == SeasonalMovingAverage(; n=3, m=9)
-    d = fit(X11Decomp, randn(6p); period=p)
-    @test haskey(d.θ.estimated, :msr_note)
+    d = fit(X11, fixed .+ randn(N); period = p)
+    @test d._fit_info.criteria.msr > 6.5
+    @test d.smoother.seasonal_final.model == SeasonalMovingAverage(; n = 3, m = 9)
+    d = fit(X11, randn(6p); period = p)
+    @test haskey(d._fit_info.criteria, :note_msr)
+    @test [:n_seasonal_final, :m_seasonal_final] ⊆ d._fit_info.derived
 end
 
-@testset "X11Decomp reproduces linear trend plus fixed seasonal ($trend)" for trend in (
-    Henderson(), LOESS(), LocalPolynomial(; degree=2, kernel=TricubeKernel())
+@testset "X11 reproduces linear trend plus fixed seasonal ($trend)" for trend in (
+    Henderson(), LOESS(), LocalPolynomial(; degree = 2, kernel = TricubeKernel())
 )
     for p in (2, 3, 4, 7, 12), N in (12p, 12p + 5, 3p + p ÷ 2 + 1)
+
         s = randn(p)
         s .-= sum(s) / p
         seasonal = [s[mod1(t, p)] for t in 1:N]
         linear = [2 + 0.3t for t in 1:N]
-        d = fit(X11Decomp, linear + seasonal; period=p, trend)
+        d = fit(X11, linear + seasonal; period = p, trend_final = trend)
         @test maximum(abs, d.trend.mean - linear) < 1e-10
         @test maximum(abs, d.seasonal.mean - seasonal) < 1e-10
         @test maximum(abs, d.noise.mean) < 1e-10
         @test maximum(abs, d.rate.mean .- 0.3) < 1e-10
         # Off the grid: the line, and the periodic interpolation of the pattern
-        c = range(1, N - p; length=97)
+        c = range(1, N - p; length = 97)
         off = predict(d, c)
         @test maximum(abs, off.trend.mean - (2 .+ 0.3c)) < 1e-9
         @test maximum(abs, off.rate.mean .- 0.3) < 1e-9
@@ -191,14 +265,14 @@ end
     end
 end
 
-@testset "X11Decomp with a moving-average trend reproduces it in the interior" begin
+@testset "X11 with a moving-average trend reproduces it in the interior" begin
     for p in (4, 7, 12)
         N = 12p
         s = randn(p)
         s .-= sum(s) / p
         seasonal = [s[mod1(t, p)] for t in 1:N]
         linear = [2 + 0.3t for t in 1:N]
-        d = fit(X11Decomp, linear + seasonal; period=p, trend=MovingAverage())
+        d = fit(X11, linear + seasonal; period = p, trend_final = MovingAverage())
         inner = findall(isfinite, d.trend.mean)
         @test length(inner) ≥ N - p
         @test maximum(abs, d.trend.mean[inner] - linear[inner]) < 1e-10
@@ -206,64 +280,150 @@ end
     end
 end
 
-@testset "X11Decomp reports a derived preliminary trend" begin
-    d = fit(X11Decomp, _yc, _tc; period=1.0, preliminary_trend=MovingAverage())
-    @test d.θ.estimated.preliminary_trend_bandwidth ≈ 1.0
-    @test d.θ.smoothers.preliminary_trend.model.bandwidth ≈ 1.0
+@testset "X11 intermediate trend" begin
+    d = fit(X11, _yc, _tc; period = 1.0, trend_interm = MovingAverage())
+    @test d.θ.bandwidth_trend_interm ≈ 1.0
+    @test :bandwidth_trend_interm ∈ d._fit_info.derived
+    @test d.smoother.trend_interm.model.bandwidth ≈ 1.0
+
+    interm = Henderson(; endpoints = MinimumRevision())
+    d = fit(X11, _yc, _tc; period = 1.0, trend_interm = interm)
+    @test d.θ.ratio_trend_interm == d.smoother.trend_interm.model.endpoints.ratio
+    @test :ratio_trend_interm ∈ d._fit_info.estimated
+    @test haskey(d._fit_info.criteria, :msre_trend_interm)
 end
 
-@testset "X11Decomp reports an estimated preliminary ratio" begin
-    preliminary_trend = Henderson(; endpoints=MinimumRevision())
-    d = fit(X11Decomp, _yc, _tc; period=1.0, preliminary_trend)
-    @test d.θ.estimated.preliminary_ratio ==
-        d.θ.smoothers.preliminary_trend.model.endpoints.ratio
-    @test haskey(d.θ.estimated, :preliminary_msre)
+@testset "STL reports what it chose from the data" begin
+    @test_logs (:info, r"STL") fit(STL, _yc, _tc; period = 1.0)
+    d = @quietly fit(STL, _yc, _tc; period = 1.0)
+    @test [:span_trend_final, :neighbors_trend_final] ⊆ d._fit_info.estimated
+    @test d._fit_info.derived == [:bandwidth_trend_init]
+    @test_logs (:info, r"STL") fit(
+        STL, _yc, _tc; period = 1.0, trend_final = Henderson(; bandwidth = 2.0))
 end
 
-@testset "STLDecomp reports its derived trend span" begin
-    @test_logs (:info, r"STLDecomp") fit(STLDecomp, _yc, _tc; period=1.0)
-    @test_logs min_level = Logging.Info fit(
-        STLDecomp, _yc, _tc; period=1.0, trend=LOESS(; span=0.2, degree=1)
-    )
-end
-
-@testset "X11Decomp reports estimated hyperparameters once" begin
-    logs, d = Test.collect_test_logs(() -> fit(X11Decomp, _yc, _tc; period=1.0))
-    @test length(logs) == 1
-    @test occursin("X11Decomp", logs[1].message)
-    @test logs[1].group === :estimated
-    @test Dict(logs[1].kwargs) == Dict(pairs(d.θ.estimated))
-    @test_logs min_level = Logging.Info fit(
-        X11Decomp,
+@testset "X11 reports in the order of fitting" begin
+    d = fit(
+        X11,
         _yc,
         _tc;
-        period=1.0,
-        trend=Henderson(; bandwidth=1.0, endpoints=musgrave(3.5)),
-        seasonal=SeasonalMovingAverage(; n=3, m=5),
+        period = 1.0,
+        trend_interm = LOESS(; degree = 1),
+        trend_final = LOESS(),
+        seasonal_init = SeasonalMovingAverage(; n = 3, m = 9)
+    )
+    @test collect(keys(d.θ)) == [
+        :bandwidth_trend_init,
+        :n_seasonal_init,
+        :m_seasonal_init,
+        :span_trend_interm,
+        :neighbors_trend_interm,
+        :n_seasonal_final,
+        :m_seasonal_final,
+        :span_trend_final,
+        :neighbors_trend_final
+    ]
+    @test (d.θ.n_seasonal_init, d.θ.m_seasonal_init) == (3, 5)    # shortened
+    @test collect(keys(d._fit_info.criteria)) == [
+        :note_seasonal_init,
+        :cv_score_trend_interm,
+        :enp_trend_interm,
+        :autocorrelation_z_trend_interm,
+        :msr,
+        :note_seasonal_final,
+        :cv_score_trend_final,
+        :enp_trend_final,
+        :autocorrelation_z_trend_final
+    ]
+    s = sprint(show, MIME"text/plain"(), d)
+    @test occursin(r"neighbors_trend_interm +\d+\n", s)
+    labels = ("smoothers", "trend_init", "seasonal_final", "estimated", "fixed", "criteria")
+    for label in labels
+        @test occursin(label, s)
+    end
+    @test findfirst("trend_init", s)[1] < findfirst("seasonal_init", s)[1] <
+          findfirst("trend_interm", s)[1] < findfirst("seasonal_final", s)[1] <
+          findfirst("trend_final", s)[1]
+end
+
+@testset "custom initial trend" begin
+    d = fit(X11, _yc, _tc; period = 1.0)
+    @test d.smoother.trend_init.model isa MovingAverage
+    @test d.θ.bandwidth_trend_init ≈ 1.0
+    @test :bandwidth_trend_init ∈ d._fit_info.derived
+    h = Henderson(; bandwidth = 2.0, endpoints = DirectAsymmetric())
+    d = fit(X11, _yc, _tc; period = 1.0, trend_init = h)
+    @test d.smoother.trend_init.model == h
+    @test all(isfinite, d.trend.mean)
+    d = fit(X11, _yc, _tc; period = 1.0, trend_init = LOESS())
+    @test d.θ.neighbors_trend_init == 15
+    s = fit(STL, _yc, _tc; period = 1.0, trend_init = Henderson(; bandwidth = 2.0))
+    @test s.smoother.trend_init.model.bandwidth == 2.0
+    @test first(s._fit_info.estimated) == :ratio_trend_init
+end
+
+@testset "X11 reports estimated hyperparameters once" begin
+    logs, d = Test.collect_test_logs(() -> fit(X11, _yc, _tc; period = 1.0))
+    @test length(logs) == 1
+    @test occursin("X11", logs[1].message)
+    @test logs[1].group === :estimated
+    chosen = Dict(k => d.θ[k] for k in d._fit_info.estimated)
+    @test Dict(logs[1].kwargs) == merge(chosen, Dict(pairs(d._fit_info.criteria)))
+    @test_logs min_level = Logging.Info fit(
+        X11,
+        _yc,
+        _tc;
+        period = 1.0,
+        trend_final = Henderson(; bandwidth = 1.0, endpoints = musgrave(3.5)),
+        seasonal_final = SeasonalMovingAverage(; n = 3, m = 5)
     )
 end
 
-@testset "X11Decomp with a loess trend" begin
-    for (p, neighbours) in ((4, 7), (7, 11), (12, 15))
-        d = fit(X11Decomp, randn(10p); period=p, trend=LOESS())
-        @test d.θ.estimated.trend_neighbours == neighbours
-        f = d.θ.smoothers.trend
+@testset "X11 with a loess trend" begin
+    # candidate spans start at the smallest odd number ≥ p + 3 (at least 7) of neighbors
+    for (p, neighbors) in ((4, 7), (7, 11), (12, 15))
+        N = 10p
+        m, _ = GPDecompositions._resolve_trend(LOESS(), p, 1.0, N)
+        @test round(Int, first(m.span) * N) == neighbors && last(m.span) == 1
+        d = @quietly fit(X11, randn(N); period = p, trend_final = LOESS())
+        @test d.θ.neighbors_trend_final ≥ neighbors
+        f = d.smoother.trend_final
         @test f isa FittedSmoother{LOESS}
-        @test f.model.span ≈ neighbours / 10p
+        @test d.θ.span_trend_final == f.model.span
         @test f.model.degree == 2
-        @test d.θ.smoothers.preliminary_trend.model == f.model
+        @test d.smoother.trend_interm.model isa LOESS
     end
     # Loess interior weights with minimum-revision ends: the tricube local polynomial
-    hybrid = LocalPolynomial(; bandwidth=1.0, degree=2, kernel=TricubeKernel())
-    d = fit(X11Decomp, _yc, _tc; period=1.0, trend=hybrid)
-    @test d.θ.smoothers.trend.model.endpoints isa MinimumRevision{Float64}
+    hybrid = LocalPolynomial(; bandwidth = 1.0, degree = 2, kernel = TricubeKernel())
+    d = fit(X11, _yc, _tc; period = 1.0, trend_final = hybrid)
+    @test d.smoother.trend_final.model.endpoints isa MinimumRevision{Float64}
 end
 
-@testset "STLDecomp default trend" begin
-    d = fit(STLDecomp, _yc, _tc; period=1.0)
-    q = d.θ.estimated.trend_neighbours
-    @test isodd(q)
+@testset "STL default trend" begin
+    d = fit(STL, _yc, _tc; period = 1.0)
+    q = d.θ.neighbors_trend_final
     @test q ≥ 1.5 * 12 / (1 - 1.5 / 7)
-    @test d.θ.smoothers.trend.model.span ≈ q / 120
-    @test d.θ.smoothers.trend.model.degree == 1
+    @test d.smoother.trend_final.model.span ≈ q / 120
+    @test d.smoother.trend_final.model.degree == 1
+    @test d.smoother.seasonal_final.model isa StableSeasonal
+end
+
+@testset "X11 trend length near the interior optimum" begin
+    # smooth trend, weekly pattern and independent noise: leave-one-out targets the error of
+    # the trend, and comes close to the best interior estimate of it
+    rng = Xoshiro(7)
+    N, p = 300, 7
+    t = 1:N
+    trend = 0.8 .* sin.(2π .* t ./ 90) .+ 0.3 .* sin.(2π .* t ./ 37)
+    rate = 0.8 .* (2π / 90) .* cos.(2π .* t ./ 90) .+
+           0.3 .* (2π / 37) .* cos.(2π .* t ./ 37)
+    y = trend .+ 0.3 .* sin.(2π .* t ./ p) .+ 0.08 .* randn(rng, N)
+    inner = 41:(N - 40)
+    err(d, c, truth) = sqrt(mean(abs2, d[c].mean[inner] .- truth[inner]))
+    d = @quietly fit(X11(), y; period = p)
+    fits = [@quietly fit(X11(; trend_final = Henderson(; bandwidth = b)), y; period = p)
+            for b in 8:2:44]
+    @test err(d, :trend, trend) ≤ 1.1 * minimum(f -> err(f, :trend, trend), fits)
+    # the shortest candidate is the old fixed default
+    @test err(d, :rate, rate) < 0.5 * err(fits[1], :rate, rate)
 end

@@ -1,4 +1,3 @@
-# Sort (y, t) by t and check uniform spacing; returns (y, t, Δt)
 function _uniform_grid(y::AbstractVector{<:Real}, t::AbstractVector{<:Real})
     length(y) == length(t) || throw(DimensionMismatch("y and t must have the same length"))
     length(t) ≥ 2 || throw(ArgumentError("need at least 2 observations"))
@@ -6,31 +5,29 @@ function _uniform_grid(y::AbstractVector{<:Real}, t::AbstractVector{<:Real})
     y_s, t_s = Float64.(y[perm]), Float64.(t[perm])
     Δ = diff(t_s)
     Δt = first(Δ)
-    Δt > 0 && all(δ -> isapprox(δ, Δt; rtol=1e-8), Δ) || throw(
+    Δt > 0 && all(δ -> isapprox(δ, Δt; rtol = 1e-8), Δ) || throw(
         ArgumentError("filter-based decompositions require uniformly spaced, distinct t"),
     )
     any(isnan, y_s) && throw(ArgumentError("y must not contain NaN"))
     return y_s, t_s, Δt
 end
 
-# Period in units of t → integer number of samples per cycle
 function _samples_per_period(period::Real, Δt::Real)
     isfinite(period) && period > 0 ||
         throw(DomainError(period, "period must be positive and finite"))
     T = period / Δt
-    isapprox(T, round(T); rtol=1e-8) && round(Int, T) ≥ 2 || throw(
+    isapprox(T, round(T); rtol = 1e-8) && round(Int, T) ≥ 2 || throw(
         ArgumentError(
-            "period / Δt = $T must be an integer ≥ 2; filter-based decompositions " *
-            "do not support non-integer periods (use GPDecomp)",
-        ),
+        "period / Δt = $T must be an integer ≥ 2; filter-based decompositions " *
+        "do not support non-integer periods (use GaussianProcess)",
+    ),
     )
     return round(Int, T)
 end
 
-_nextodd(x::Real) = (n=ceil(Int, x); isodd(n) ? n : n + 1)
+_nextodd(x::Real) = (n = ceil(Int, x); isodd(n) ? n : n + 1)
 
-# Rate dx̄/dt from a uniformly sampled trend: the derivative of its cubic spline over its
-# finite (contiguous) span, so that NaN ends (e.g. a symmetric filter) do not propagate
+# Rate of a uniformly sampled trend over its finite (contiguous) span
 function _trend_rate(x̄::AbstractVector{<:Real}, Δt::Real)
     r = fill(NaN, length(x̄))
     idx = findall(isfinite, x̄)
