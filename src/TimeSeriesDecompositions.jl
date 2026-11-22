@@ -1,4 +1,4 @@
-module GPDecompositions
+module TimeSeriesDecompositions
 
 ## Dependencies ##
 
@@ -67,4 +67,4 @@ export musgrave, musgrave_ic_ratio
 export AbstractSmootherKernel, HendersonKernel, BiweightKernel, TricubeKernel
 export EpanechnikovKernel, UniformKernel, kernel_weights
 
-end # module GPDecompositions
+end # module TimeSeriesDecompositions

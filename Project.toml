@@ -1,4 +1,4 @@
-name = "GPDecompositions"
+name = "TimeSeriesDecompositions"
 uuid = "29adc1aa-f14c-4657-8706-c5e2d354a969"
 version = "0.6.0"
 authors = ["Matthew J. Y. Shin <matthew.shin@pasteur.fr>"]

@@ -1,10 +1,10 @@
-using GPDecompositions
+using TimeSeriesDecompositions
 using Logging
 using Test
 
 # Top level, where a closure cannot assign the caller's variables
 module QuietlyScope
-using GPDecompositions, Logging
+using TimeSeriesDecompositions, Logging
 x = 0
 for i in 1:3
     @quietly global x = i

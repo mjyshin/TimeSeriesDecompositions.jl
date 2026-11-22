@@ -1,9 +1,9 @@
-using GPDecompositions
+using TimeSeriesDecompositions
 using Test
 using Random
 using Statistics
 using LinearAlgebra: I, Symmetric, cholesky
-using GPDecompositions: GP, logpdf
+using TimeSeriesDecompositions: GP, logpdf
 
 @testset "posterior mean within credible intervals (synthetic data)" begin
     rng = 42
@@ -150,16 +150,16 @@ end
     y = 0.5 .* sin.(2π .* t ./ 150) .+ ϵ
     θ = (σ_trend = 1.0, l_trend = 500.0, σ_seasonal = 0.0, l_seasonal = Inf,
         period = Inf, ρ = 0.0, σ_noise = 1.0)
-    lag = GPDecompositions._LagIndex(t)
-    v = GPDecompositions._lag_covariance(θ, lag.lags, GPDecompositions._default_kernels)
+    lag = TimeSeriesDecompositions._LagIndex(t)
+    v = TimeSeriesDecompositions._lag_covariance(θ, lag.lags, TimeSeriesDecompositions._default_kernels)
     C = cholesky(Symmetric(v[lag.index] + v[end] * I))
-    w = GPDecompositions._innovation_whiteness(C, (y .- mean(y)) ./ std(y), t, Inf)
+    w = TimeSeriesDecompositions._innovation_whiteness(C, (y .- mean(y)) ./ std(y), t, Inf)
     @test w.pvalue < 0.01
     @test w.max_lag == 1 && w.max_acf > 0
 end
 
 @testset "lag-wise likelihood matches AbstractGPs" begin
-    G = GPDecompositions
+    G = TimeSeriesDecompositions
     Random.seed!(6)
     t = sort([60 .* rand(60); fill(20.0, 4); fill(41.5, 3)])    # irregular, replicates
     y = randn(length(t))

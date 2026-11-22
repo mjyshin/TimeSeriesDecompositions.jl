@@ -4,7 +4,7 @@ using Test
 # Hyperparameters chosen from the data are reported with @info; tests that check those
 # messages capture them with @test_logs
 with_logger(ConsoleLogger(stderr, Logging.Warn)) do
-    @testset "GPDecompositions" begin
+    @testset "TimeSeriesDecompositions" begin
         include("test_quality.jl")
         include("test_logging.jl")
         include("test_api.jl")
