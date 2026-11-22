@@ -2,7 +2,7 @@
 
 julia_version = "1.13.0"
 manifest_format = "2.1"
-project_hash = "eb4671a0cb71af22ad8cd95f2c0043c3ca53391f"
+project_hash = "898aa63bd1ba60aebaf20a38c3180c24968b4ce4"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -391,7 +391,7 @@ uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 version = "1.11.0"
 
 [[deps.GPDecompositions]]
-deps = ["AbstractGPs", "Distributions", "ForwardDiff", "HypothesisTests", "Interpolations", "KernelFunctions", "LinearAlgebra", "Logging", "LoggingExtras", "Optim", "Reexport", "SparseArrays", "Statistics", "StatsAPI", "StatsBase"]
+deps = ["AbstractGPs", "Distributions", "ForwardDiff", "HypothesisTests", "Interpolations", "KernelFunctions", "LinearAlgebra", "Logging", "LoggingExtras", "Optim", "RecipesBase", "Reexport", "SparseArrays", "Statistics", "StatsAPI", "StatsBase"]
 path = "."
 uuid = "29adc1aa-f14c-4657-8706-c5e2d354a969"
 version = "0.6.0"

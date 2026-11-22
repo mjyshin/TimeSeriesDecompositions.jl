@@ -16,9 +16,11 @@ X-11; between them, the same fit at the continuous offsets.
 - `endpoints`: an [`AbstractEndpoints`](@ref) for the first and last `h` samples.
 
 The leave-one-out residual of a linear smoother is `(yᵢ - ŷᵢ) / (1 - wᵢᵢ)`, so no refit is
-needed; candidates are scored over the interior of the widest. A warning (log group
-`:diagnostics`) is issued when the chosen filter's residuals are more autocorrelated than
-independent errors allow, which makes the choice too short.
+needed. Candidates are scored over all `N` points, each with its own end weights (a
+minimum-revision `ratio` left as `nothing` is estimated for each), or with
+[`NoEndpoints`](@ref) over the interior of the widest. A warning (log group `:diagnostics`)
+is issued when the chosen filter's residuals are more autocorrelated than independent
+errors allow, which makes the choice too short.
 
 `predict(f, t_new)` evaluates the smoother at times in `[t₁, t_N]`. `f.state.weights` holds
 the weights at offsets `-h:h`, and `f.state.end_weights[q + 1]` those at offsets `-h:q`.
@@ -88,7 +90,8 @@ function _fit(model::LocalPolynomial, y::AbstractVector{<:Real}, t::AbstractVect
     bandwidth = something(
         model.bandwidth, _bandwidth_grid(_min_halfwidth(model.degree), length(y), Δ))
     if bandwidth isa AbstractVector
-        bandwidth, criteria = _select_bandwidth(y, bandwidth, Δ, model.degree, model.kernel)
+        bandwidth, criteria = _select_bandwidth(
+            y, bandwidth, Δ, model.degree, model.kernel, model.endpoints)
         estimated = (; bandwidth, criteria...)
     end
     h = _halfwidth(bandwidth, Δ)
@@ -132,27 +135,37 @@ function _halfwidth(bandwidth::Real, Δ::Real)
     return round(Int, h)
 end
 
-# Bandwidth minimizing the mean leave-one-out CV score (P&L §5) over the interior points
-# Candidate minimizing the leave-one-out score over the interior of the widest, and the
-# residual autocorrelation check of the chosen filter
-function _select_bandwidth(y, bandwidths, Δ, degree, kernel)
+# Bandwidth minimizing the mean leave-one-out score (P&L §5) of the filter with its end
+# weights over all N points, so every candidate is scored on the same points; NoEndpoints
+# leaves the ends undefined, so it is scored over the interior of the widest candidate.
+# Then the residual autocorrelation check of the chosen filter's interior
+function _select_bandwidth(y, bandwidths, Δ, degree, kernel, endpoints)
     isempty(bandwidths) && throw(ArgumentError("no candidate bandwidths"))
     N = length(y)
     halfwidths = [_halfwidth(b, Δ) for b in bandwidths]
     valid = [N ≥ 2h + 1 && 2h > degree for h in halfwidths]
     any(valid) || throw(ArgumentError("no candidate bandwidth fits the series"))
     H = maximum(halfwidths[valid])
-    weights(h) = _local_weights(_grid_kernel(kernel, h), (-h):h, degree)
+    ts = endpoints isa NoEndpoints ? ((H + 1):(N - H)) : (1:N)
     scores = map(halfwidths, valid) do h, ok
         ok || return Inf
-        w = weights(h)
-        return mean(((H + 1):(N - H))) do t
-            return ((y[t] - dot(w, view(y, (t - h):(t + h)))) / (1 - w[h + 1]))^2
+        g = _grid_kernel(kernel, h)
+        e = try
+            first(_resolve_endpoints(endpoints, g, y, degree))
+        catch err
+            err isa ArgumentError || rethrow()
+            return Inf    # end weights undefined at this bandwidth
         end
+        values, self = _filter_values(_filter_weights(g, e, degree)..., y)
+        all(<(1 - 1e-8), view(self, ts)) || return Inf
+        return mean(t -> ((y[t] - values[t]) / (1 - self[t]))^2, ts)
     end
     i = argmin(scores)
+    isfinite(scores[i]) ||
+        throw(ArgumentError("no candidate bandwidth gives a finite cross-validation score"))
     h = halfwidths[i]
-    z = _residual_autocorrelation_z(_interior_residual_matrix(weights(h), N), y)
+    w = _local_weights(_grid_kernel(kernel, h), (-h):h, degree)
+    z = _residual_autocorrelation_z(_interior_residual_matrix(w, N), y)
     _warn_autocorrelation(:LocalPolynomial, z, "bandwidth")
     return bandwidths[i], (; cv_score = scores[i], autocorrelation_z = z)
 end
@@ -201,23 +214,37 @@ _end_weights(::NoEndpoints, _, dp, _, _) = fill(NaN, length(dp))
 _end_weights(::DirectAsymmetric, g, dp, _, degree) = _local_weights(g, dp, degree)
 
 # Minimum-revision weights on the available offsets dp, missing df: the KKT system of
-# P&L eqs. 8–9 with D = σ²I and bias column Z = dᵈ*⁺¹
+# P&L eqs. 8–9 with D = σ²I and bias column Z = dᵈ*⁺¹,
+#     [M Uₚ; Uₚᵀ 0] [x; λ] = [b₁; b₂],  M = I + ρzₚzₚᵀ,
+# solved with M⁻¹ by Sherman–Morrison and the k × k Schur complement UₚᵀM⁻¹Uₚ, in O(nk²)
 function _end_weights(e::MinimumRevision{Float64}, g, dp, df, degree)
     isinf(e.ratio) &&    # P&L eq. 12
         return _end_weights(MinimumRevision(e.degree + 1, 0.0), g, dp, df, degree)
+    return _min_revision_weights(_min_revision_system(e.degree, g, dp, df, degree), e.ratio)
+end
+
+# The parts of the system that do not depend on the ratio
+function _min_revision_system(bias_degree, g, dp, df, degree)
     d = [dp; df]
     p, f = eachindex(dp), (length(dp) + 1):length(d)
     s = _scale(g)
     w = _local_weights(g, d, degree)
-    U = _design(d, e.degree, s)
-    z = @. (d / s)^(e.degree + 1)
-    ρ = e.ratio * Float64(s)^(2 * (e.degree + 1))    # for the scaled column z
-    Up, zp = U[p, :], z[p]
-    zf_wf = dot(view(z, f), view(w, f))
-    k = e.degree + 1
-    A = [(I + ρ * zp * zp') Up; Up' zeros(k, k)]
-    b = [ρ * zf_wf * zp; U[f, :]' * view(w, f)]
-    return w[p] + (A \ b)[p]
+    U = _design(d, bias_degree, s)
+    z = @. (d / s)^(bias_degree + 1)
+    scale = Float64(s)^(2 * (bias_degree + 1))    # of the ratio, for the scaled column z
+    return (; wp = w[p], Up = U[p, :], zp = z[p], zf_wf = dot(view(z, f), view(w, f)),
+        b₂ = U[f, :]' * view(w, f), scale)
+end
+
+function _min_revision_weights(sys, ratio::Real)
+    (; wp, Up, zp, zf_wf, b₂, scale) = sys
+    ρ = ratio * scale
+    b₁ = (ρ * zf_wf) .* zp
+    c = ρ / (1 + ρ * dot(zp, zp))
+    M⁻¹Up = Up .- (c .* zp) * (zp' * Up)
+    M⁻¹b₁ = b₁ .- (c * dot(zp, b₁)) .* zp
+    λ = (Up' * M⁻¹Up) \ (Up' * M⁻¹b₁ .- b₂)
+    return wp .+ M⁻¹b₁ .- M⁻¹Up * λ
 end
 
 function _validate(::DirectAsymmetric, reach, degree)
@@ -276,9 +303,13 @@ function _estimate_ratio(e::MinimumRevision{Nothing}, g::_GridKernel, y, degree)
     end
     w = _local_weights(g, (-r):r, degree)
     final = [dot(w, view(y, (t - r):(t + r))) for t in ts]
+    windows = [y[t + j] for t in ts, j in (-r):0]    # the real-time windows, one per row
+    sys = _min_revision_system(e.degree, g, (-r):0, 1:r, degree)
+    sys_inf = _allows_infinite_ratio(e, r) ?
+              _min_revision_system(e.degree + 1, g, (-r):0, 1:r, degree) : nothing
     function msre(ρ)
-        v = _end_weights(MinimumRevision(e.degree, ρ), g, (-r):0, 1:r, degree)
-        return mean(abs2(final[i] - dot(v, view(y, (t - r):t))) for (i, t) in enumerate(ts))
+        v = isinf(ρ) ? _min_revision_weights(sys_inf, 0.0) : _min_revision_weights(sys, ρ)
+        return mean(abs2, final .- windows * v)
     end
 
     log_grid = -4:0.1:2
@@ -297,24 +328,41 @@ function _estimate_ratio(e::MinimumRevision{Nothing}, g::_GridKernel, y, degree)
 end
 
 function _fitted_grid(model, g, endpoints, degree, y, t, Δ, estimated)
-    r = g.reach
     N = length(y)
-    N ≥ 2r + 1 ||
+    N ≥ 2g.reach + 1 ||
         throw(ArgumentError("series of length $N is too short for the bandwidth"))
+    weights, end_weights = _filter_weights(g, endpoints, degree)
+    values, _ = _filter_values(weights, end_weights, y)
+    state = (; kernel = g, endpoints, degree, Δ, weights, end_weights)
+    return FittedSmoother(model, t, y, values, state, estimated)
+end
+
+# Weights at offsets -r:r, and for q = 0:r-1 the end weights at offsets -r:q
+function _filter_weights(g::_GridKernel, endpoints, degree)
+    r = g.reach
     weights = _local_weights(g, (-r):r, degree)
     end_weights = Vector{Float64}[_end_weights(endpoints, g, (-r):q, (q + 1):r, degree)
                                   for q in 0:(r - 1)]
-    values = fill(NaN, N)
+    return weights, end_weights
+end
+
+# The filter applied to y (end weights mirrored at the start), and the weight of each value
+# on its own observation
+function _filter_values(weights, end_weights, y)
+    r = length(weights) ÷ 2
+    N = length(y)
+    values, self = fill(NaN, N), fill(NaN, N)
     for i in (r + 1):(N - r)
         values[i] = dot(weights, view(y, (i - r):(i + r)))
+        self[i] = weights[r + 1]
     end
     for q in 0:(r - 1)
         v = end_weights[q + 1]
         values[N - q] = dot(v, view(y, (N - q - r):N))
         values[1 + q] = dot(reverse(v), view(y, 1:(1 + q + r)))
+        self[N - q] = self[1 + q] = v[r + 1]
     end
-    state = (; kernel = g, endpoints, degree, Δ, weights, end_weights)
-    return FittedSmoother(model, t, y, values, state, estimated)
+    return values, self
 end
 
 function _predict_grid(f::FittedSmoother, t_new::AbstractVector{<:Real})

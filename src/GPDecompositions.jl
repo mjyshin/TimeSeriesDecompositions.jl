@@ -12,6 +12,7 @@ using LoggingExtras: MinLevelLogger
 using LinearAlgebra: Cholesky, I, PosDefException, Symmetric, cholesky!, diag, diagind, dot,
                      issuccess, logdet, mul!, tr
 using Optim: Optim, Brent, LBFGS, OnceDifferentiable, optimize
+using RecipesBase: RecipesBase, @recipe, @series
 using Reexport: @reexport
 using SparseArrays: sparse, spdiagm
 using Statistics: mean, median, var
@@ -50,6 +51,8 @@ include("classical/stages.jl")
 include("classical/x11.jl")
 include("classical/stl.jl")
 include("classical/classical.jl")
+
+include("plotting.jl")
 
 ## Exports ##
 
