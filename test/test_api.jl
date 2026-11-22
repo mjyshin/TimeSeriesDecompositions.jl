@@ -267,3 +267,32 @@ end
         @test !isdefined(GPDecompositions, name)
     end
 end
+
+@testset "plot recipe" begin
+    RecipesBase = GPDecompositions.RecipesBase
+    RecipesBase.is_key_supported(::Symbol) = true    # defined by Plots
+    recipe(d; kw...) = RecipesBase.apply_recipe(Dict{Symbol, Any}(kw), d)
+    attr(s, k) = s.plotattributes[k]
+    d = fit(GaussianProcess(), _y, _t; period = 12.0)
+    # all four panels: two bands and a line each, colored by component
+    series = recipe(d)
+    @test length(series) == 4 * 3
+    @test [attr(s, :seriescolor) for s in series] == repeat(1:4; inner = 3)
+    @test [attr(s, :subplot) for s in series] == repeat(1:4; inner = 3)
+    band = series[1]    # the widest band first, at the larger level
+    @test attr(band, :ribbon) ≈ 1.6448536269514722 .* d.trend.std
+    @test band.args == (d.t, d.trend.mean)
+    # a subset in the order given keeps its colors; one level gives one band
+    series = recipe(d; vars = [:rate, :noise], sig = 0.95)
+    @test [attr(s, :seriescolor) for s in series] == [4, 4, 3, 3]
+    @test attr(series[1], :ribbon) ≈ 1.959963984540054 .* d.rate.std
+    @test length(recipe(d; vars = :rate)) == 3
+    # point estimates have no bands; missing components are skipped
+    @test length(recipe(fit(X11(), _y, _t; period = 12.0))) == 4
+    d0 = fit(GaussianProcess(), _y, _t; period = Inf)
+    @test isnothing(d0.seasonal)
+    @test [attr(s, :seriescolor) for s in recipe(d0)] == repeat([1, 3, 4]; inner = 3)
+    @test_throws ArgumentError recipe(d0; vars = [:seasonal])
+    @test_throws ArgumentError recipe(d; vars = [:level])
+    @test_throws DomainError recipe(d; sig = 1.0)
+end
