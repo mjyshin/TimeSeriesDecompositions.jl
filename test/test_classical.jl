@@ -38,7 +38,7 @@ const _yc = sin.(2π .* _tc) .+ 0.2 .* (_tc .- 2000) .+ 0.1 .* randn(120)
     @test d.period == 1.0
     @test !haskey(d.θ, :period)
     @test d.smoother.trend_final isa FittedSmoother
-    @test d.smoother.trend_init.model isa MovingAverage
+    @test keys(d.smoother) == filter(!=(:iterations), fieldnames(D))
 end
 
 @testset "$D default t and unsorted input" for D in (X11, STL)
@@ -135,7 +135,8 @@ end
     # a stage keyword sets one stage and keeps the others
     m = X11(; trend_final = l)
     @test (m.trend_init, m.trend_interm, m.trend_final) == (MovingAverage(), nothing, l)
-    @test STL(; trend = l).trend_init == l
+    @test STL(; trend = l).trend_final == l
+    @test STL(; seasonal = s).seasonal_final == s
     # the fit and the positional constructor
     d = fit(X11(; trend = l), _yc, _tc; period = 1.0)
     @test d.smoother.trend_init.model isa LOESS
@@ -296,8 +297,10 @@ end
 @testset "STL reports what it chose from the data" begin
     @test_logs (:info, r"STL") fit(STL, _yc, _tc; period = 1.0)
     d = @quietly fit(STL, _yc, _tc; period = 1.0)
-    @test [:span_trend_final, :neighbors_trend_final] ⊆ d._fit_info.estimated
-    @test d._fit_info.derived == [:bandwidth_trend_init]
+    @test d._fit_info.estimated ==
+          [:bandwidth_seasonal_final, :span_trend_final, :neighbors_trend_final]
+    @test isempty(d._fit_info.derived)
+    @test first(keys(d._fit_info.criteria)) == :msr
     @test_logs (:info, r"STL") fit(
         STL, _yc, _tc; period = 1.0, trend_final = Henderson(; bandwidth = 2.0))
 end
@@ -357,9 +360,7 @@ end
     @test all(isfinite, d.trend.mean)
     d = fit(X11, _yc, _tc; period = 1.0, trend_init = LOESS())
     @test d.θ.neighbors_trend_init == 15
-    s = fit(STL, _yc, _tc; period = 1.0, trend_init = Henderson(; bandwidth = 2.0))
-    @test s.smoother.trend_init.model.bandwidth == 2.0
-    @test first(s._fit_info.estimated) == :ratio_trend_init
+    @test_throws ArgumentError STL(; trend_init = MovingAverage())    # starts from zero
 end
 
 @testset "X11 reports estimated hyperparameters once" begin
@@ -404,8 +405,71 @@ end
     q = d.θ.neighbors_trend_final
     @test q ≥ 1.5 * 12 / (1 - 1.5 / 7)
     @test d.smoother.trend_final.model.span ≈ q / 120
-    @test d.smoother.trend_final.model.degree == 1
-    @test d.smoother.seasonal_final.model isa StableSeasonal
+    @test d.smoother.trend_final.model.degree == 2
+    @test d.smoother.seasonal_final.model isa SeasonalLOESS
+    @test d._fit_info.criteria.msr > 6.5    # a fixed pattern in noise: S3×9
+    @test d.θ.bandwidth_seasonal_final ≈ 14.0
+    @test collect(keys(d.θ)) ==
+          [:bandwidth_seasonal_final, :span_trend_final, :neighbors_trend_final]
+end
+
+@testset "STL reproduces a linear trend and a fixed seasonal pattern" begin
+    s = repeat([3, 1, -2, 0, 2, -1, -4, 1, 0, 2, -1, -1.0], 10)
+    t = 1:120
+    for N in (120, 115)    # also a part cycle
+        d = @quietly fit(STL(), 0.3 .* t[1:N] .+ s[1:N]; period = 12)
+        @test d.trend.mean ≈ 0.3 .* t[1:N] atol = 1e-10
+        @test d.seasonal.mean ≈ s[1:N] atol = 1e-10
+    end
+end
+
+@testset "STL matches R's stl without robustness" begin
+    for line in eachline(joinpath(@__DIR__, "data", "stl_r.txt"))
+        row = parse.(Float64, split(line))
+        p, N, ns, nt, inner = Int.(row[1:5])
+        y, trend, seasonal = row[6:(5 + N)], row[(6 + N):(5 + 2N)], row[(6 + 2N):end]
+        model = STL(; seasonal = SeasonalLOESS(; bandwidth = (ns - 1) * p),
+            trend = LOESS(; span = nt / N, degree = 1), iterations = inner)
+        d = fit(model, y; period = p)
+        @test d.trend.mean ≈ trend rtol = 1e-10
+        @test d.seasonal.mean ≈ seasonal rtol = 1e-10
+    end
+end
+
+@testset "STL options" begin
+    @test STL().iterations == 2
+    @test sprint(show, STL(; iterations = 1)) == "STL(iterations=1)"
+    @test_throws DomainError STL(; iterations = 0)
+    one, two = [@quietly(fit(STL(; iterations = k), _yc, _tc; period = 1.0)) for k in 1:2]
+    @test one.seasonal.mean != two.seasonal.mean
+    # the seasonal smoother of X11, and X11's in STL, extended by the nearest same phase
+    d = fit(
+        STL(; seasonal = SeasonalMovingAverage(), trend = Henderson(; bandwidth = 1.0)),
+        _yc, _tc; period = 1.0)
+    @test (d.θ.n_seasonal_final, d.θ.m_seasonal_final) == (3, 5)
+    @test d.trend.mean .+ d.seasonal.mean .+ d.noise.mean ≈ _yc
+    d = @quietly fit(X11(; seasonal = SeasonalLOESS()), _yc, _tc; period = 1.0)
+    @test d.θ.bandwidth_seasonal_init ≈ 6.0    # fixed, like S3×3
+    @test :bandwidth_seasonal_init ∈ d._fit_info.derived
+    @test d.θ.bandwidth_seasonal_final ≈ 14.0    # by the MSR, like S3×9
+    @test :bandwidth_seasonal_final ∈ d._fit_info.estimated
+end
+
+@testset "SeasonalLOESS bandwidth by the MSR" begin
+    # windows matching the variance reduction of S3×3, S3×5 and S3×9
+    matched(n, m, degree) = TimeSeriesDecompositions._matched_loess(
+        SeasonalMovingAverage(n, m), degree, 7.0).bandwidth
+    @test [matched(3, m, 1) for m in (3, 5, 9)] ≈ 7 .* [6, 8, 14]
+    @test [matched(3, m, 2) for m in (3, 5, 9)] ≈ 7 .* [12, 18, 28]
+    # a given bandwidth is kept
+    d = fit(STL(; seasonal = SeasonalLOESS(; bandwidth = 10.0)), _yc, _tc; period = 1.0)
+    @test d.θ.bandwidth_seasonal_final ≈ 10.0
+    @test !haskey(d._fit_info.criteria, :msr)
+    # below seven cycles: six periods, with a note
+    d = @quietly fit(STL, _yc[1:72], _tc[1:72]; period = 1.0)
+    @test d.θ.bandwidth_seasonal_final ≈ 6.0
+    @test :bandwidth_seasonal_final ∈ d._fit_info.derived
+    @test occursin("six periods", d._fit_info.criteria.note_msr)
 end
 
 @testset "X11 trend length near the interior optimum" begin

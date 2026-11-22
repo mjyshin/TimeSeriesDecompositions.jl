@@ -61,7 +61,7 @@ export quietly, @quietly
 export AbstractDecompositionModel, GaussianProcess, X11, STL, Decomposition, Component
 export AbstractSmoother, AbstractTrendSmoother, AbstractSeasonalSmoother, FittedSmoother
 export LocalPolynomial, Henderson, MovingAverage, LOESS
-export SeasonalMovingAverage, StableSeasonal
+export SeasonalMovingAverage, SeasonalLOESS, StableSeasonal
 export AbstractEndpoints, NoEndpoints, DirectAsymmetric, MinimumRevision
 export musgrave, musgrave_ic_ratio
 export AbstractSmootherKernel, HendersonKernel, BiweightKernel, TricubeKernel

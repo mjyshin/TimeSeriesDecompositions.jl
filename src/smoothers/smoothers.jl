@@ -17,7 +17,7 @@ abstract type AbstractTrendSmoother <: AbstractSmoother end
     AbstractSeasonalSmoother <: AbstractSmoother
 
 Seasonal smoothers of known period, fitted with `fit(model, y, t; period)`:
-[`SeasonalMovingAverage`](@ref) and [`StableSeasonal`](@ref).
+[`SeasonalMovingAverage`](@ref), [`SeasonalLOESS`](@ref) and [`StableSeasonal`](@ref).
 """
 abstract type AbstractSeasonalSmoother <: AbstractSmoother end
 
