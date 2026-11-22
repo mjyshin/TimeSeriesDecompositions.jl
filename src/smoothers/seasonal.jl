@@ -49,7 +49,7 @@ end
     predict(f::FittedSmoother{<:AbstractSeasonalSmoother}, t_new) -> Vector{Float64}
 
 Evaluate the fitted seasonal pattern at times `t_new` within the observed range,
-interpolating trigonometrically between phases as `predict(d::X11Decomp, t_new)`.
+interpolating trigonometrically between phases, as in `predict` of an [`X11`](@ref) fit.
 """
 function predict(
         f::FittedSmoother{<:AbstractSeasonalSmoother}, t_new::AbstractVector{<:Real}

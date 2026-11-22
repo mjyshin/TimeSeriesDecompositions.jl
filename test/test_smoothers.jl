@@ -235,8 +235,11 @@ end
         f = @inferred GPDecompositions._fit(model, _y, t)
         @test @inferred(predict(f, [10.5, 60.25])) isa Vector{Float64}
     end
-    @test fit(Henderson(; endpoints = NoEndpoints()), _y).model.bandwidth == 12
-    @test_logs (:info, r"^Henderson") fit(Henderson(), _y)
+    # a bandwidth left as nothing is chosen from 2h = 4 up to h = (N - 1) ÷ 4
+    f = @quietly fit(Henderson(; endpoints = NoEndpoints()), _y)
+    @test f.model.bandwidth ∈ 4:2:(2 * ((length(_y) - 1) ÷ 4))
+    @test haskey(f.estimated, :cv_score) && haskey(f.estimated, :autocorrelation_z)
+    @test_logs (:info, r"^Henderson") match_mode = :any fit(Henderson(), _y)
 end
 
 @testset "LocalPolynomial between grid points" begin
@@ -449,12 +452,16 @@ end
     )    # three observations tied at t = 1
 end
 
-@testset "LOESS span selection (AICc)" begin
+@testset "LOESS span selection (leave-one-out)" begin
     logs, s = Test.collect_test_logs(() -> loess(_y))
     @test length(logs) == 1
     @test logs[1].group === :estimated
     @test s.estimated.span == s.model.span
-    @test haskey(s.estimated, :enp) && haskey(s.estimated, :aicc)
+    @test haskey(s.estimated, :enp) && haskey(s.estimated, :cv_score)
+    # candidate spans, scored by the same criterion
+    c = loess(_y; span = [0.1, s.model.span, 0.9])
+    @test c.model.span == s.model.span
+    @test c.estimated.cv_score ≈ s.estimated.cv_score
     @test_logs min_level = Logging.Info loess(_y; span = 0.3)
     @test_logs min_level = Logging.Info loess(_y; bandwidth = 10)
 
@@ -462,7 +469,7 @@ end
     for replicates in (3, 5)
         tied = repeat(1.0:50; inner = replicates)
         s = loess(sin.(tied ./ 5) .+ 0.1randn(length(tied)), tied)
-        @test isfinite(s.estimated.aicc)
+        @test isfinite(s.estimated.cv_score)
     end
 
     # Warns about autocorrelated errors, but not for independent ones
@@ -474,4 +481,28 @@ end
     @test_logs (:warn, r"autocorrelated") match_mode = :any loess(ar)
     iid = [sin(2π * i / 100) for i in 1:500] .+ randn(rng, 500)
     @test_logs min_level = Logging.Warn loess(iid)
+end
+
+@testset "closed-form leave-one-out residuals" begin
+    rng = Xoshiro(5)
+    t = collect(1.0:60)
+    y = sin.(t ./ 8) .+ 0.2randn(rng, 60)
+    # loess with a fixed window: refitting without observation i
+    f, lev = GPDecompositions._loess_fit(t, y, ones(60), 0.0, 6.0, 2)
+    for i in (1, 17, 30, 60)
+        keep = setdiff(1:60, i)
+        refit = predict(
+            fit(LOESS(; bandwidth = 12), y[keep], t[keep]), t[[i]]; extrapolate = true)[1]
+        @test (y[i] - f[i]) / (1 - lev[i]) ≈ y[i] - refit
+    end
+    # a symmetric local cubic: the weighted fit at t without t
+    h = 5
+    g = GPDecompositions._grid_kernel(HendersonKernel(), h)
+    w = GPDecompositions._local_weights(g, (-h):h, 3)
+    d = [k for k in (-h):h if k != 0]
+    X = [k^j for k in d, j in 0:3]
+    W = [g.κ(k) for k in d]
+    i = 30
+    β = (X' * (W .* X)) \ (X' * (W .* y[i .+ d]))
+    @test (y[i] - dot(w, y[(i - h):(i + h)])) / (1 - w[h + 1]) ≈ y[i] - β[1]
 end

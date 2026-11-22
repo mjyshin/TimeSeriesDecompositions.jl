@@ -19,7 +19,7 @@ function _samples_per_period(period::Real, Δt::Real)
     isapprox(T, round(T); rtol = 1e-8) && round(Int, T) ≥ 2 || throw(
         ArgumentError(
         "period / Δt = $T must be an integer ≥ 2; filter-based decompositions " *
-        "do not support non-integer periods (use GPDecomp)",
+        "do not support non-integer periods (use GaussianProcess)",
     ),
     )
     return round(Int, T)

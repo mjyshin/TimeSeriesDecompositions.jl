@@ -1,21 +1,18 @@
 """
-    AbstractDecomp
+    AbstractDecompositionModel
 
-Supertype of the seasonal-trend decompositions [`GPDecomp`](@ref), [`X11Decomp`](@ref) and
-[`STLDecomp`](@ref), with fields `t`, `trend`, `seasonal`, `noise`, `rate` (each a
-[`Component`](@ref) or `nothing`) and the hyperparameters `θ`. Fit with `fit(D, y, t; ...)`,
-evaluate at other times with `predict(d, t_new)`; `d[:name]` is `d.name`.
+Supertype of the seasonal-trend decomposition models [`GaussianProcess`](@ref),
+[`X11`](@ref) and [`STL`](@ref): immutable structs of settings, built with keyword
+constructors. `fit(model, y, t; period)` returns a [`Decomposition`](@ref).
 """
-abstract type AbstractDecomp end
-
-Base.getindex(d::AbstractDecomp, name::Symbol) = getproperty(d, name)
+abstract type AbstractDecompositionModel end
 
 """
     Component
 
 Estimate of one component at the times `d.t`: `mean`, `std`, and credible-interval bounds
-`lower[i]`, `upper[i]` at level `sig[i]`. Point estimates (`X11Decomp`, `STLDecomp`) have
-`std` all `NaN` and no intervals. `c[:name]` is `c.name`.
+`lower[i]`, `upper[i]` at level `sig[i]`. Point estimates ([`X11`](@ref), [`STL`](@ref))
+have `std` all `NaN` and no intervals. `c[:name]` is `c.name`.
 """
 struct Component
     mean::Vector{Float64}
@@ -26,6 +23,50 @@ struct Component
 end
 
 Base.getindex(c::Component, name::Symbol) = getproperty(c, name)
+
+"""
+    Decomposition{M<:AbstractDecompositionModel}
+
+A decomposition fitted by `fit(model::M, y, t; period)`, with fields `model`, `t`, `period`,
+`trend`, `seasonal`, `noise`, `rate` (each a [`Component`](@ref) or `nothing`), the
+hyperparameters `θ` and, for filter models, the fitted stage smoothers `smoother`.
+Evaluate at other times with `predict(d, t_new)`; `d[:name]` is `d.name`.
+"""
+struct Decomposition{M <: AbstractDecompositionModel}
+    model::M
+    t::Vector{Float64}
+    period::Float64
+    trend::Component
+    seasonal::Union{Component, Nothing}
+    noise::Union{Component, Nothing}
+    rate::Component
+    θ::NamedTuple
+    smoother::Union{NamedTuple, Nothing}
+    _fit_info::NamedTuple
+end
+
+Base.getindex(d::Decomposition, name::Symbol) = getproperty(d, name)
+
+"""
+    fit(M::Type{<:AbstractDecompositionModel}, y, t=eachindex(y); period, kwargs...)
+
+Shorthand for `fit(M(; kwargs...), y, t; period)`.
+"""
+function fit(::Type{M}, y::AbstractVector{<:Real},
+        t::AbstractVector{<:Real} = eachindex(y);
+        period::Union{Real, Nothing} = nothing, kwargs...) where {
+        M <: AbstractDecompositionModel}
+    model = M(; kwargs...)
+    return isnothing(period) ? fit(model, y, t) : fit(model, y, t; period)
+end
+
+# Show a model by the fields that differ from its defaults
+function Base.show(io::IO, m::M) where {M <: AbstractDecompositionModel}
+    default = Base.typename(M).wrapper()
+    changed = ("$k=$(getfield(m, k))"
+    for k in fieldnames(M) if !isequal(getfield(m, k), getfield(default, k)))
+    return print(io, nameof(M), "(", join(changed, ", "), ")")
+end
 
 # Point estimate without uncertainty
 function Component(mean::AbstractVector{<:Real})
@@ -58,12 +99,13 @@ end
 _fmt(x::AbstractFloat) = isfinite(x) ? string(round(x; sigdigits = 4)) : string(x)
 _fmt(x) = string(x)
 
-function _show_header(io::IO, d::AbstractDecomp)
-    t1, tN = extrema(d.t)
-    return print(io, "$(nameof(typeof(d))){N=$(length(d.t)), t∈[$t1, $tN]}")
+function _show_header(io::IO, d::Decomposition)
+    t1, tN = isempty(d.t) ? (NaN, NaN) : extrema(d.t)
+    name = nameof(typeof(d.model))
+    return print(io, "Decomposition{$name}(N=$(length(d.t)), t∈[$t1, $tN])")
 end
 
-Base.show(io::IO, d::AbstractDecomp) = _show_header(io, d)
+Base.show(io::IO, d::Decomposition) = _show_header(io, d)
 
 _show_line(io::IO, label, value) = print(io, "\n  ", rpad(label, 11), ": ", value)
 

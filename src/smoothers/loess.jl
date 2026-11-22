@@ -5,15 +5,19 @@ Loess [1, 2] at any times: at each time, the tricube-weighted (times observation
 least-squares polynomial of degree `degree`, computed exactly as R's
 `loess(..., surface = "direct")`.
 
-- `span`: fraction `α` of the observations in each local fit, as in R's `loess`.
+- `span`: fraction `α` of the observations in each local fit, as in R's `loess`, or a
+  vector of candidates, of which the one minimizing the leave-one-out cross-validation
+  score is chosen.
 - `bandwidth`: fixed window width `2λ` in units of `t`; with `span`, the radius is the
   larger of the two.
 - `degree`: `0`, `1` or `2`.
 
-With neither `span` nor `bandwidth` (outside a decomposition), the span minimizes the
-AICc [3], in `O(N²)` time, and a warning (log group `:diagnostics`) is issued when the
-residuals' lag-one autocorrelation exceeds its expectation under independent errors by
-more than three standard deviations.
+With neither `span` nor `bandwidth`, the span is chosen among geometrically spaced numbers
+of neighbors (inside a decomposition, from the period up). The leave-one-out residual is
+`(yᵢ - ŷᵢ) / (1 - Lᵢᵢ)` for the leverage `Lᵢᵢ` with the window held fixed, in `O(N²)` time
+in all. A warning (log group `:diagnostics`) is issued when the residuals' lag-one
+autocorrelation exceeds its expectation under independent errors by more than three
+standard deviations, which makes the chosen span too small.
 
 `fit(model, y, t; wts=nothing)` takes non-negative observation weights.
 `predict(f, t_new; extrapolate=false)` evaluates within `[t₁, t_N]`, or beyond with
@@ -25,33 +29,30 @@ exact evaluation.
 
 [2] W. S. Cleveland and S. J. Devlin. "Locally weighted regression: an approach to
 regression analysis by local fitting". JASA 83 (403), 1988.
-
-[3] C. M. Hurvich, J. S. Simonoff and C.-L. Tsai. "Smoothing parameter selection in
-nonparametric regression using an improved Akaike information criterion". JRSS B 60 (2),
-1998.
 """
 struct LOESS <: AbstractTrendSmoother
-    span::Union{Nothing, Float64}
+    span::Union{Nothing, Float64, Vector{Float64}}
     bandwidth::Union{Nothing, Float64}
     degree::Int
 end
 
 function LOESS(;
-        span::Union{Nothing, Real} = nothing,
+        span::Union{Nothing, Real, AbstractVector{<:Real}} = nothing,
         bandwidth::Union{Nothing, Real} = nothing,
         degree::Integer = 2
 )
-    isnothing(span) || span > 0 || throw(DomainError(span, "span must be positive"))
+    isnothing(span) || all(>(0), span) || throw(DomainError(span, "span must be positive"))
+    span = span isa AbstractVector ? collect(Float64, span) : _float(span)
     isnothing(bandwidth) ||
         bandwidth > 0 ||
         throw(DomainError(bandwidth, "bandwidth must be positive"))
     degree ∈ (0, 1, 2) || throw(DomainError(degree, "degree must be 0, 1 or 2"))
-    return LOESS(_float(span), _float(bandwidth), Int(degree))
+    return LOESS(span, _float(bandwidth), Int(degree))
 end
 
 function Base.show(io::IO, m::LOESS)
     print(io, "LOESS(")
-    isnothing(m.span) || print(io, "span=", _fmt(m.span), ", ")
+    isnothing(m.span) || print(io, "span=", _fmt_bandwidth(m.span), ", ")
     isnothing(m.bandwidth) || print(io, "bandwidth=", _fmt(m.bandwidth), ", ")
     return print(io, "degree=$(m.degree))")
 end
@@ -73,15 +74,17 @@ function _fit(
     (; span, bandwidth, degree) = model
 
     estimated = (;)
-    if isnothing(span) && isnothing(bandwidth)
-        q, criteria = _select_span(t, y, wts, degree)
+    if span isa AbstractVector || isnothing(span) && isnothing(bandwidth)
+        candidates = isnothing(span) ? _neighbor_grid(degree + 2, N) :
+                     unique(_span_neighbors.(span, N))
+        q, criteria = _select_span(t, y, wts, degree, candidates, _radius(bandwidth))
         span = q / N
         estimated = (; span, criteria...)
     end
     isnothing(span) ||
         _span_neighbors(span, N) ≥ degree + 2 ||
         throw(ArgumentError("span × N must be at least degree + 2 = $(degree + 2)"))
-    α, h = something(span, 0.0), _radius(bandwidth)
+    α, h = something(span, 0.0)::Float64, _radius(bandwidth)
     values = first(_loess_fit(t, y, wts, α, h, degree))
     resolved = LOESS(_float(span), bandwidth, degree)
     return FittedSmoother(resolved, t, y, values, (; wts), estimated)
@@ -98,7 +101,7 @@ function predict(
         f::FittedSmoother{LOESS}, t_new::AbstractVector{<:Real}; extrapolate::Bool = false
 )
     extrapolate || _check_in_range(f.t, t_new)
-    α, h = something(f.model.span, 0.0), _radius(f.model.bandwidth)
+    α, h = something(f.model.span, 0.0)::Float64, _radius(f.model.bandwidth)
     return [_local_value(f.t, f.y, f.state.wts, α, h, f.model.degree, Float64(x))
             for x in t_new]
 end
@@ -187,46 +190,60 @@ end
 
 const _MAX_DIAGNOSTIC_ENTRIES = 2_000_000    # of the hat matrix, for the autocorrelation check
 
-# Neighbors q minimizing the AICc over about 40 geometrically spaced values, then a check
-# of the residual autocorrelation
-function _select_span(t, y, wts, degree)
+# Numbers of neighbors from q_min to N, about 5% apart
+function _neighbor_grid(q_min, N)
+    qs = Int[]
+    q = min(q_min, N)
+    while q < N
+        push!(qs, q)
+        q = max(q + 1, round(Int, 1.05q))
+    end
+    return push!(qs, N)
+end
+
+# Neighbors q minimizing the leave-one-out score, then a check of the residual
+# autocorrelation
+function _select_span(t, y, wts, degree, candidates, h)
     N = length(t)
-    N ≥ degree + 5 || throw(ArgumentError("too few observations to choose the span"))
-    candidates = unique(round.(Int, exp.(range(log(degree + 2), log(N); length = 40))))
-    best = (q = 0, aicc = Inf, enp = NaN)
-    n = count(>(0), wts)    # observations with positive weight
+    best = (q = 0, cv_score = Inf, enp = NaN)
     for q in candidates
+        q ≥ degree + 2 || continue
         fitted, leverage = try
-            _loess_fit(t, y, wts, q / N, 0.0, degree)
+            _loess_fit(t, y, wts, q / N, h, degree)
         catch err
             err isa ArgumentError || rethrow()
             continue    # too few distinct observations at some t
         end
-        enp = sum(leverage)
-        n - enp - 2 > 0 || continue
-        σ² = sum(wts .* (y - fitted) .^ 2) / sum(wts)
-        aicc = log(σ²) + 1 + 2(enp + 1) / (n - enp - 2)
-        aicc < best.aicc && (best = (; q, aicc, enp))
+        keep = wts .> 0
+        all(<(1 - 1e-8), leverage[keep]) || continue
+        score = sum(wts[keep] .* ((y - fitted) ./ (1 .- leverage)) .^ 2 ./ sum(wts[keep]))
+        score < best.cv_score && (best = (; q, cv_score = score, enp = sum(leverage)))
     end
-    isfinite(best.aicc) || throw(ArgumentError("no span gives a finite AICc"))
-    criteria = (; enp = best.enp, aicc = best.aicc)
+    isfinite(best.cv_score) ||
+        throw(ArgumentError("no candidate span gives a finite cross-validation score"))
+    criteria = (; best.cv_score, best.enp)
     if N * best.q > _MAX_DIAGNOSTIC_ENTRIES
         note = "residual autocorrelation not checked: N × q exceeds $_MAX_DIAGNOSTIC_ENTRIES"
         return best.q, (; criteria..., note_autocorr = note)
     end
-    z = _residual_autocorrelation_z(_hat_matrix(t, wts, best.q / N, 0.0, degree), y)
-    z > 3 && @warn("LOESS: the residuals are more autocorrelated than independent errors " *
-          "would give (z = $(round(z; digits=1))); the AICc span is likely too small",
-        _group = :diagnostics,)
+    z = _residual_autocorrelation_z(I - _hat_matrix(t, wts, best.q / N, h, degree), y)
+    _warn_autocorrelation(:LOESS, z, "span")
     return best.q, (; criteria..., autocorrelation_z = z)
 end
 
-# z-score of the lag-one autocorrelation ρ̂ = yᵀAy / yᵀBy of the residuals against
-# independent errors, A = Mᵀ(S + Sᵀ)M/2 and B = MᵀM for M = I - L and the lag-one shift S
-function _residual_autocorrelation_z(L, y)
-    N = length(y)
-    M = I - L
-    S = spdiagm(1 => ones(N - 1))
+function _warn_autocorrelation(name, z, hyperparameter)
+    z > 3 &&
+        @warn("$name: the residuals are more autocorrelated than independent errors " *
+              "would give (z = $(round(z; digits=1))); the chosen $hyperparameter is " *
+              "likely too small",
+            _group = :diagnostics)
+    return nothing
+end
+
+# z-score of the lag-one autocorrelation ρ̂ = yᵀAy / yᵀBy of the residuals My against
+# independent errors, A = Mᵀ(S + Sᵀ)M/2 and B = MᵀM for the lag-one shift S
+function _residual_autocorrelation_z(M, y)
+    S = spdiagm(1 => ones(size(M, 1) - 1))
     A = M' * (S + S') * M / 2
     B = M' * M
     ρ₀ = tr(A) / tr(B)

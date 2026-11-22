@@ -11,6 +11,18 @@ function _component_estimate(k::Kernel, data, t, sig, shift, s_y)
     return _component(μ, s_y .* sqrt.(max.(var(f, t), 0)), sig)
 end
 
+# Posterior of the noise, independent across observations: σ²α and σ² - σ⁴[K⁻¹]ᵢᵢ at the
+# fitted observations, the prior of a new observation's noise at other times
+function _noise_estimate(σ²::Float64, data, t, sig, s_y)
+    (; α, C, x) = data
+    if t == x
+        μ, v = σ² .* α, σ² .- σ²^2 .* diag(inv(C))
+    else
+        μ, v = zeros(length(t)), fill(σ², length(t))
+    end
+    return _component(s_y .* μ, s_y .* sqrt.(max.(v, 0)), sig)
+end
+
 # Posterior of the trend's derivative, by central differences of step h in the trend kernel
 # (forward-mode AD of Matérn kernels is NaN at coincident points)
 function _rate_estimate(k::Kernel, data, t, sig, s_y, h; approx::Bool)
@@ -24,27 +36,29 @@ function _rate_estimate(k::Kernel, data, t, sig, s_y, h; approx::Bool)
     return _component(μ, s_y .* sqrt.(max.(v, 0)), sig)
 end
 
-function _build_decomposition(post::NamedTuple, t_out::Vector{Float64}, θ::NamedTuple,
-        ȳ::Float64, s_y::Float64; sig::Vector{Float64}, approx_rate::Bool, fit_info)
-    sig = sort(unique(sig))
-    (; ks, data) = post
+function _build_decomposition(model::GaussianProcess, fit_info::NamedTuple,
+        t::AbstractVector{<:Real}, period::Float64, θ::NamedTuple; sig)
+    all(0 .< sig .< 1) || throw(DomainError(sig, "sig levels must be in (0, 1)"))
+    t, sig = collect(Float64, t), sort(unique(Float64.(sig)))
+    (; posterior, ȳ, s_y) = fit_info
+    (; ks, data) = posterior
     estimate(k, shift = 0.0) = isnothing(k) ? nothing :
-                               _component_estimate(k, data, t_out, sig, shift, s_y)
+                               _component_estimate(k, data, t, sig, shift, s_y)
     h = 1e-4 * (isfinite(θ.l_trend) ? θ.l_trend : 1.0)
-    rate = _rate_estimate(ks.trend, data, t_out, sig, s_y, h; approx = approx_rate)
-    fi = (; ȳ, s_y, approx_rate, fit = fit_info)
-    return GPDecomp(t_out, estimate(ks.trend, ȳ), estimate(ks.seasonal),
-        estimate(ks.noise), rate, sig, θ, post, fi)
+    rate = _rate_estimate(ks.trend, data, t, sig, s_y, h; approx = model.approx_rate)
+    return Decomposition(model, t, period, estimate(ks.trend, ȳ), estimate(ks.seasonal),
+        ks.noise > 0 ? _noise_estimate(ks.noise, data, t, sig, s_y) : nothing, rate, θ,
+        nothing, fit_info)
 end
 
 """
-    predict(d::GPDecomp, t_new=d.t; sig=d.sig) -> GPDecomp
+    predict(d::Decomposition{<:GaussianProcess}, t_new=d.t; sig=d.trend.sig)
 
-Evaluate a fitted decomposition at the times `t_new` without refitting.
+Evaluate a fitted decomposition at the times `t_new`, with credible levels `sig`, without
+refitting. The noise is independent across observations: at `t_new = d.t` it is the
+posterior of each observation's noise, elsewhere that of a new observation (mean 0).
 """
-function predict(d::GPDecomp, t_new::AbstractVector{<:Real} = d.t;
-        sig::AbstractVector{<:Real} = d.sig)
-    fi = d._fit_info
-    return _build_decomposition(d._posterior, Float64.(t_new), d.θ, fi.ȳ, fi.s_y;
-        sig = Float64.(sig), approx_rate = fi.approx_rate, fit_info = fi.fit)
+function predict(d::Decomposition{<:GaussianProcess}, t_new::AbstractVector{<:Real} = d.t;
+        sig::AbstractVector{<:Real} = d.trend.sig)
+    return _build_decomposition(d.model, d._fit_info, t_new, d.period, d.θ; sig)
 end

@@ -1,115 +1,104 @@
 """
-    X11Decomp <: AbstractDecomp
+    X11(; trend_init, seasonal_init, trend_interm, seasonal_final, trend_final)
+    X11(; trend, seasonal)
 
-X-11-style decomposition by trend smoothers and `S(n × m)` seasonal filters, for any
-integer period. The fitted smoothers are in `d.smoother`, nested by component and stage
-(`d.smoother.trend.final`). Point estimates only. See `fit(X11Decomp, ...)`.
+X-11-style decomposition model: trend smoothers and `S(n × m)` seasonal filters in two
+passes, for any integer period. Each keyword is the smoother of one stage, listed in fitting
+order; `trend` or `seasonal` sets every stage of that component.
+
+- `trend_init`: [`MovingAverage`](@ref)`()` over one period.
+- `seasonal_init`: [`SeasonalMovingAverage`](@ref)`(n=3, m=3)`.
+- `trend_interm`: `nothing`, which is `trend_final` with minimum-revision ratio `0`.
+- `seasonal_final`: `nothing`, `S3×3`, `S3×5` or `S3×9` by X-11's moving seasonality
+  ratio (`S3×3` below seven cycles).
+- `trend_final`: [`Henderson`](@ref)`()`, with its length chosen by cross-validation and
+  estimated QL minimum-revision end weights.
+
+```julia
+fit(X11(; trend_interm=Henderson(; bandwidth=12, endpoints=MinimumRevision(; ratio=0))),
+    y; period=7)
+fit(X11(; trend_final=Henderson(; bandwidth=12, endpoints=musgrave(3.5))), y; period=12)
+```
 """
-struct X11Decomp <: AbstractDecomp
-    t::Vector{Float64}
-    trend::Component
-    seasonal::Component
-    noise::Component
-    rate::Component
-    θ::NamedTuple
-    smoother::NamedTuple
-    _fit_info::NamedTuple  # (Δt, grid, estimated, derived, criteria)
+struct X11 <: AbstractDecompositionModel
+    trend_init::AbstractTrendSmoother
+    seasonal_init::AbstractSeasonalSmoother
+    trend_interm::Union{Nothing, AbstractTrendSmoother}
+    seasonal_final::Union{Nothing, AbstractSeasonalSmoother}
+    trend_final::AbstractTrendSmoother
+    function X11(trend_init, seasonal_init, trend_interm, seasonal_final, trend_final)
+        s = (; trend_init, seasonal_init, trend_interm, seasonal_final, trend_final)
+        return new(_check_stages(X11, s)...)
+    end
 end
 
-const _X11_SMOOTHERS = (
-    trend = (init = MovingAverage(), interm = nothing, final = Henderson()),
-    seasonal = (init = SeasonalMovingAverage(; n = 3, m = 3), final = nothing)
+const _X11_DEFAULTS = (
+    trend_init = MovingAverage(),
+    seasonal_init = SeasonalMovingAverage(; n = 3, m = 3),
+    trend_interm = nothing,
+    seasonal_final = nothing,
+    trend_final = Henderson()
 )
 
-function _stages(::X11Decomp)
-    return (
-        (:trend, :init),
-        (:seasonal, :init),
-        (:trend, :interm),
-        (:seasonal, :final),
-        (:trend, :final)
-    )
-end
+X11(; kwargs...) = X11(_stage_settings(X11, _X11_DEFAULTS, NamedTuple(kwargs))...)
 
 """
-    fit(X11Decomp, y, t=eachindex(y); period, smoother=(;)) -> X11Decomp
+    fit(model::X11, y, t=eachindex(y); period) -> Decomposition{X11}
 
-X-11-style decomposition of `y` at uniformly spaced times `t` with `p = period / Δt` (an
-integer) samples per cycle and at least three cycles, in two passes:
+Decompose `y` at uniformly spaced times `t` with `p = period / Δt` (an integer) samples per
+cycle and at least three cycles, in two passes:
 
- 1. initial trend (`trend.init`); initial seasonal (`seasonal.init`) of the detrended
-    series; intermediate trend (`trend.interm`) of the seasonally adjusted series;
- 2. seasonal (`seasonal.final`) of the series detrended by the intermediate trend; trend
-    (`trend.final`) of the seasonally adjusted series.
+ 1. initial trend (`trend_init`); initial seasonal (`seasonal_init`) of the detrended
+    series; intermediate trend (`trend_interm`) of the seasonally adjusted series;
+ 2. seasonal (`seasonal_final`) of the series detrended by the intermediate trend; trend
+    (`trend_final`) of the seasonally adjusted series.
 
 Each seasonal filter is applied where the trend is defined, extended to the ends by the
 nearest estimate of the same phase, and centered by its `2 × p` moving average. The noise is
 `y - trend - seasonal`. With the default smoothers, a linear trend plus a fixed seasonal
 pattern is reproduced exactly.
 
-`smoother` is a `NamedTuple` of the components `trend` (stages `init`, `interm`, `final`)
-and `seasonal` (stages `init`, `final`); a component given as one smoother applies to all
-its stages. The defaults are:
+A trend bandwidth or span left as `nothing` is chosen by leave-one-out cross-validation on
+the series that stage smooths, from a minimum set by `p` so that the trend cannot absorb
+the seasonal: a [`LocalPolynomial`](@ref) bandwidth `2hΔt` from the smallest even
+`2h ≥ p` (at least 4), and a [`LOESS`](@ref) span from the smallest odd number `≥ p + 3`
+(at least 7) of observations. A [`MovingAverage`](@ref) bandwidth left as `nothing` is one
+period. A seasonal filter needing more cycles than
+available is replaced by the longest that fits, with a note.
 
-- `trend.init`: [`MovingAverage`](@ref)`()` over one period.
-- `trend.interm`: `nothing`, the final trend smoother with minimum-revision ratio `0`.
-- `trend.final`: [`Henderson`](@ref)`()` with estimated QL minimum-revision end weights.
-- `seasonal.init`: [`SeasonalMovingAverage`](@ref)`(n=3, m=3)`.
-- `seasonal.final`: `nothing`, `S3×3`, `S3×5` or `S3×9` by X-11's moving seasonality
-  ratio (`S3×3` below seven cycles).
-
-Trend hyperparameters left as `nothing` are derived from `p`: a [`LocalPolynomial`](@ref)
-bandwidth `2hΔt` for the smallest even `2h ≥ p` (at least 4), a [`LOESS`](@ref) span of
-the smallest odd number `≥ p + 3` (at least 7) of observations, and a
-[`MovingAverage`](@ref) bandwidth of one period. A seasonal filter needing more cycles than
-available is replaced by the longest that fits, with a note. For X-11's Musgrave end
-weights on monthly data with `Δt = 1`:
-
-```julia
-fit(X11Decomp, y; period=12,
-    smoother=(trend=(final=Henderson(; bandwidth=12, endpoints=musgrave(3.5)),),))
-```
-
-`d.θ` holds the period and each stage's numeric hyperparameters, named
-`<quantity>_<component>_<stage>` in fitting order (e.g. `bandwidth_trend_final`);
+`d.smoother` holds the fitted smoother of each stage, and `d.θ` their numeric
+hyperparameters, named `<quantity>_<stage>` in fitting order (e.g. `bandwidth_trend_final`);
 `d._fit_info` lists those `estimated` from the data and `derived` from the period, and the
 `criteria` and notes. The rate is the derivative of the not-a-knot cubic spline through the
 trend. There is no extreme-value, calendar or forecast adjustment as in X-13ARIMA-SEATS.
 """
-function fit(
-        ::Type{X11Decomp},
-        y::AbstractVector{<:Real},
-        t::AbstractVector{<:Real} = eachindex(y);
-        period::Real,
-        smoother::NamedTuple = (;)
-)
+function fit(model::X11, y::AbstractVector{<:Real},
+        t::AbstractVector{<:Real} = eachindex(y); period::Real)
     y, t, Δt = _uniform_grid(y, t)
     p = _samples_per_period(period, Δt)
     N = length(y)
     cycles = N ÷ p
     cycles ≥ 3 || throw(ArgumentError("need at least 3 seasonal cycles, got $cycles"))
-    s = _resolve_smoothers(smoother, _X11_SMOOTHERS)
-    initial, derived_init = _resolve_trend(s.trend.init, p, Δt, N)
-    interm = something(s.trend.interm, _interm(s.trend.final))
+    initial, derived_init = _resolve_trend(model.trend_init, p, Δt, N)
+    interm = something(model.trend_interm, _interm(model.trend_final))
     interm, derived_interm = _resolve_trend(interm, p, Δt, N)
-    final, derived_final = _resolve_trend(s.trend.final, p, Δt, N)
-    r = _Report(period)
+    final, derived_final = _resolve_trend(model.trend_final, p, Δt, N)
+    r = _Report()
 
     # Pass 1
     trend_init = _fit(initial, y, t)
-    _record!(r, trend_init, :_trend_init; derived = keys(derived_init))
+    _record!(r, trend_init, :trend_init; derived = keys(derived_init))
     seasonal_init, seasonal_values, note = _seasonal(
-        s.seasonal.init, y - predict(trend_init), t, p, Δt
-    )
-    _record!(r, seasonal_init, :_seasonal_init)
+        model.seasonal_init, y - predict(trend_init), t, p, Δt)
+    _record!(r, seasonal_init, :seasonal_init)
     isnothing(note) || push!(r.criteria, :note_seasonal_init => note)
     trend_interm = _fit(interm, y - seasonal_values, t)
-    _record!(r, trend_interm, :_trend_interm; derived = keys(derived_interm))
+    _record!(r, trend_interm, :trend_interm; derived = keys(derived_interm))
 
     # Pass 2
     detrended = y - predict(trend_interm)
     inner = _finite_range(detrended)
-    seasonal_model, derived, chosen = s.seasonal.final, (), ()
+    seasonal_model, derived, chosen = model.seasonal_final, (), ()
     if isnothing(seasonal_model)
         available = length(inner) ÷ p
         if available < _MSR_MIN_CYCLES
@@ -122,48 +111,34 @@ function fit(
             chosen = (:n, :m)
         end
     end
-    seasonal_final, seasonal_values, note = _seasonal(
-        seasonal_model, detrended, t, p, Δt
-    )
-    _record!(r, seasonal_final, :_seasonal_final; derived, chosen)
+    seasonal_final, seasonal_values, note = _seasonal(seasonal_model, detrended, t, p, Δt)
+    _record!(r, seasonal_final, :seasonal_final; derived, chosen)
     isnothing(note) || push!(r.criteria, :note_seasonal_final => note)
     adjusted = y - seasonal_values
     trend_final = _fit(final, adjusted, t)
-    _record!(r, trend_final, :_trend_final; derived = keys(derived_final))
-    trend_values = predict(trend_final)
+    _record!(r, trend_final, :trend_final; derived = keys(derived_final))
 
-    noise = adjusted - trend_values
-    rate = _trend_rate(trend_values, Δt)
-    grid = (; t, trend = trend_values, seasonal = seasonal_values, noise, rate)
-    θ, fit_info = _finish(r, X11Decomp, Δt, grid)
-    fitted = (
-        trend = (init = trend_init, interm = trend_interm, final = trend_final),
-        seasonal = (init = seasonal_init, final = seasonal_final)
-    )
-    return X11Decomp(
-        t,
-        Component(trend_values),
-        Component(seasonal_values),
-        Component(noise),
-        Component(rate),
-        θ,
-        fitted,
-        fit_info
-    )
+    smoother = (; trend_init, seasonal_init, trend_interm, seasonal_final, trend_final)
+    return _filter_decomposition(model, r, y, t, Δt, period, predict(trend_final),
+        seasonal_values, smoother)
 end
 
-# Trend smoother with hyperparameters left as nothing derived from p, and those values
-function _resolve_trend(m::LocalPolynomial, p, Δt, _)
+# Trend smoother with hyperparameters left as nothing resolved from p: candidates from a
+# minimum, or a value derived from p (and the derived values)
+function _resolve_trend(m::LocalPolynomial, p, Δt, N)
     isnothing(m.bandwidth) || return m, (;)
-    bandwidth = max(4, 2cld(p, 2)) * Δt
-    return LocalPolynomial(bandwidth, m.degree, m.kernel, m.endpoints), (; bandwidth)
+    h_min = max(2, cld(p, 2), _min_halfwidth(m.degree))
+    bandwidth = _bandwidth_grid(h_min, N, Δt)
+    return LocalPolynomial(bandwidth, m.degree, m.kernel, m.endpoints), (;)
 end
 
 function _resolve_trend(m::LOESS, p, _, N)
+    return _loess_candidates(m, max(7, _nextodd(p + 3)), N)
+end
+
+function _loess_candidates(m::LOESS, q_min, N)
     isnothing(m.span) && isnothing(m.bandwidth) || return m, (;)
-    q = max(7, _nextodd(p + 3))
-    span = q / N
-    return LOESS(span, nothing, m.degree), (; span, neighbors = q)
+    return LOESS(_neighbor_grid(q_min, N) ./ N, nothing, m.degree), (;)
 end
 
 function _resolve_trend(m::MovingAverage, p, Δt, _)

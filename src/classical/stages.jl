@@ -1,41 +1,26 @@
-# Resolve the `smoother` keyword against the defaults, NamedTuples of components of stages
-function _resolve_smoothers(smoother::NamedTuple, defaults::NamedTuple)
-    _check_keys(smoother, keys(defaults), "smoother")
-    resolved = map(keys(defaults)) do c
-        return _resolve_stages(get(smoother, c, nothing), defaults[c], c)
+# Stage smoothers of a filter model M from its keywords: the stages (e.g. `trend_final`) and
+# the components (e.g. `trend`, every trend stage), over the defaults
+function _stage_settings(::Type{M}, defaults::NamedTuple, kwargs::NamedTuple) where {M}
+    stages = keys(defaults)
+    component(stage) = Symbol(first(split(string(stage), '_')))
+    components = unique(component.(stages))
+    _check_keys(kwargs, (stages..., components...), "$(nameof(M)) keyword")
+    settings = map(stages) do stage
+        c = component(stage)
+        haskey(kwargs, c) && haskey(kwargs, stage) &&
+            throw(ArgumentError("give $c or $stage, not both"))
+        return haskey(kwargs, stage) ? kwargs[stage] :
+               haskey(kwargs, c) ? kwargs[c] : defaults[stage]
     end
-    return NamedTuple{keys(defaults)}(resolved)
+    return NamedTuple{stages}(settings)
 end
 
-_resolve_stages(::Nothing, default::NamedTuple, ::Symbol) = default
-
-function _resolve_stages(s::AbstractSmoother, default::NamedTuple, c::Symbol)
-    _check_stage(s, default, c, first(keys(default)))
-    return map(_ -> s, default)
-end
-
-function _resolve_stages(s::NamedTuple, default::NamedTuple, c::Symbol)
-    _check_keys(s, keys(default), "smoother.$c")
-    for (stage, v) in pairs(s)
-        _check_stage(v, default, c, stage)
+function _check_stages(::Type{M}, settings::NamedTuple) where {M}
+    for (stage, v) in pairs(settings)
+        T = fieldtype(M, stage)
+        v isa T || throw(ArgumentError("$stage must be of type $T, got $(typeof(v))"))
     end
-    return merge(default, s)
-end
-
-function _resolve_stages(s, _, c::Symbol)
-    throw(ArgumentError("smoother.$c must be a smoother or a NamedTuple, got $(typeof(s))"))
-end
-
-_smoother_type(c::Symbol) = c == :trend ? AbstractTrendSmoother : AbstractSeasonalSmoother
-
-function _check_stage(v, default::NamedTuple, c::Symbol, stage::Symbol)
-    isnothing(v) && isnothing(default[stage]) && return nothing
-    v isa _smoother_type(c) || throw(
-        ArgumentError(
-        "smoother.$c.$stage must be an $(_smoother_type(c)), got $(typeof(v))"
-    ),
-    )
-    return nothing
+    return settings
 end
 
 # Numeric hyperparameters of a fitted smoother
@@ -68,15 +53,11 @@ struct _Report
     criteria::Vector{Pair{Symbol, Any}}
 end
 
-function _Report(period::Real)
-    return _Report(
-        Pair{Symbol, Any}[:period => Float64(period)], Symbol[], Symbol[], Pair{
-            Symbol, Any}[]
-    )
-end
+_Report() = _Report(Pair{Symbol, Any}[], Symbol[], Symbol[], Pair{Symbol, Any}[])
 
-# Record the fitted smoother of a stage (suffix e.g. :_trend_final)
-function _record!(r::_Report, f::FittedSmoother, suffix::Symbol; derived = (), chosen = ())
+# Record the fitted smoother of a stage (e.g. :trend_final)
+function _record!(r::_Report, f::FittedSmoother, stage::Symbol; derived = (), chosen = ())
+    suffix = Symbol(:_, stage)
     data = [k for k in keys(f.estimated) if k ∈ _CHOSEN_HYPERPARAMETERS]
     :span ∈ data && push!(data, :neighbors)
     for (k, v) in pairs(_hyperparameters(f.model, length(f.t)))

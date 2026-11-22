@@ -8,12 +8,17 @@ within `bandwidth / 2`, evaluated there. At the observed times it is the linear 
 X-11; between them, the same fit at the continuous offsets.
 
 - `bandwidth`: window width `2hΔ` in units of `t` (`h ≥ 1` an integer), or a vector of
-  candidates, of which the one minimizing the mean leave-one-out cross-validation score
-  over the interior is chosen. `nothing` gives `12Δ`, or inside a decomposition is derived
-  from the period.
+  candidates, of which the one minimizing the leave-one-out cross-validation score is
+  chosen. `nothing` chooses among `2hΔ` up to `h = (N - 1) ÷ 4` (inside a decomposition,
+  from the period up).
 - `degree`: degree of the local polynomial.
 - `kernel`: an [`AbstractSmootherKernel`](@ref).
 - `endpoints`: an [`AbstractEndpoints`](@ref) for the first and last `h` samples.
+
+The leave-one-out residual of a linear smoother is `(yᵢ - ŷᵢ) / (1 - wᵢᵢ)`, so no refit is
+needed; candidates are scored over the interior of the widest. A warning (log group
+`:diagnostics`) is issued when the chosen filter's residuals are more autocorrelated than
+independent errors allow, which makes the choice too short.
 
 `predict(f, t_new)` evaluates the smoother at times in `[t₁, t_N]`. `f.state.weights` holds
 the weights at offsets `-h:h`, and `f.state.end_weights[q + 1]` those at offsets `-h:q`.
@@ -80,10 +85,11 @@ function _fit(model::LocalPolynomial, y::AbstractVector{<:Real}, t::AbstractVect
     y, t = _sorted_data(y, t)
     Δ = _require_grid(t, "LocalPolynomial")
     estimated = (;)
-    bandwidth = something(model.bandwidth, 2_DEFAULT_HALFWIDTH * Δ)
+    bandwidth = something(
+        model.bandwidth, _bandwidth_grid(_min_halfwidth(model.degree), length(y), Δ))
     if bandwidth isa AbstractVector
-        bandwidth, cv_score = _select_bandwidth(y, bandwidth, Δ, model.degree, model.kernel)
-        estimated = (; bandwidth, cv_score)
+        bandwidth, criteria = _select_bandwidth(y, bandwidth, Δ, model.degree, model.kernel)
+        estimated = (; bandwidth, criteria...)
     end
     h = _halfwidth(bandwidth, Δ)
     length(y) ≥ 2h + 1 || throw(
@@ -105,7 +111,14 @@ function predict(f::FittedSmoother{<:LocalPolynomial}, t_new::AbstractVector{<:R
     return _predict_grid(f, t_new)
 end
 
-const _DEFAULT_HALFWIDTH = 6
+# Smallest half-width of a local polynomial of degree d (2h > d), and candidate bandwidths
+# from half-width h_min up to (N - 1) ÷ 4
+_min_halfwidth(degree) = max(1, cld(degree + 1, 2))
+
+function _bandwidth_grid(h_min, N, Δ)
+    h_max = max(h_min, (N - 1) ÷ 4)
+    return collect(2.0 .* (h_min:h_max) .* Δ)
+end
 
 # Half-width h in samples of a bandwidth 2hΔ
 function _halfwidth(bandwidth::Real, Δ::Real)
@@ -120,20 +133,41 @@ function _halfwidth(bandwidth::Real, Δ::Real)
 end
 
 # Bandwidth minimizing the mean leave-one-out CV score (P&L §5) over the interior points
+# Candidate minimizing the leave-one-out score over the interior of the widest, and the
+# residual autocorrelation check of the chosen filter
 function _select_bandwidth(y, bandwidths, Δ, degree, kernel)
     isempty(bandwidths) && throw(ArgumentError("no candidate bandwidths"))
     N = length(y)
     halfwidths = [_halfwidth(b, Δ) for b in bandwidths]
-    scores = map(halfwidths) do h
-        N ≥ 2h + 1 && 2h > degree || return Inf
-        w = _local_weights(_grid_kernel(kernel, h), (-h):h, degree)
-        return mean(((h + 1):(N - h))) do t
+    valid = [N ≥ 2h + 1 && 2h > degree for h in halfwidths]
+    any(valid) || throw(ArgumentError("no candidate bandwidth fits the series"))
+    H = maximum(halfwidths[valid])
+    weights(h) = _local_weights(_grid_kernel(kernel, h), (-h):h, degree)
+    scores = map(halfwidths, valid) do h, ok
+        ok || return Inf
+        w = weights(h)
+        return mean(((H + 1):(N - H))) do t
             return ((y[t] - dot(w, view(y, (t - h):(t + h)))) / (1 - w[h + 1]))^2
         end
     end
-    all(isinf, scores) && throw(ArgumentError("no candidate bandwidth fits the series"))
     i = argmin(scores)
-    return bandwidths[i], scores[i]
+    h = halfwidths[i]
+    z = _residual_autocorrelation_z(_interior_residual_matrix(weights(h), N), y)
+    _warn_autocorrelation(:LocalPolynomial, z, "bandwidth")
+    return bandwidths[i], (; cv_score = scores[i], autocorrelation_z = z)
+end
+
+# Map from y to the residuals y_t - w ⋅ y[t-h:t+h] of a symmetric filter w at interior t
+function _interior_residual_matrix(w, N)
+    h = length(w) ÷ 2
+    rows, cols, vals = Int[], Int[], Float64[]
+    for (r, t) in enumerate((h + 1):(N - h)), (k, j) in enumerate((t - h):(t + h))
+
+        push!(rows, r)
+        push!(cols, j)
+        push!(vals, (j == t) - w[k])
+    end
+    return sparse(rows, cols, vals, N - 2h, N)
 end
 
 ## Grid weights, shared by LocalPolynomial and MovingAverage ##

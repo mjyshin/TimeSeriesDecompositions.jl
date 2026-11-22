@@ -6,6 +6,7 @@ using Test
 with_logger(ConsoleLogger(stderr, Logging.Warn)) do
     @testset "GPDecompositions" begin
         include("test_quality.jl")
+        include("test_logging.jl")
         include("test_api.jl")
         include("test_decompose.jl")
         include("test_smoothers.jl")

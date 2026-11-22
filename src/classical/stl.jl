@@ -1,97 +1,78 @@
 """
-    STLDecomp <: AbstractDecomp
+    STL(; trend_init, seasonal_final, trend_final)
+    STL(; trend, seasonal)
 
-Seasonal-trend decomposition with a loess trend, structured as [`X11Decomp`](@ref). Point
-estimates only. See `fit(STLDecomp, ...)`.
+Seasonal-trend decomposition model with a loess trend, structured as [`X11`](@ref) with one
+pass. Each keyword is the smoother of one stage, listed in fitting order; `trend` sets both
+trend stages.
+
+- `trend_init`: [`MovingAverage`](@ref)`()` over one period.
+- `seasonal_final`: [`StableSeasonal`](@ref)`()`.
+- `trend_final`: local-linear [`LOESS`](@ref); a span left as `nothing` is chosen by
+  leave-one-out cross-validation from the smallest odd number `≥ 1.5p / (1 - 1.5 / 7)` of
+  observations [1] up.
 
 !!! warning "Placeholder"
-    This is not yet the STL procedure of Cleveland et al. (1990): it has no
-    cycle-subseries smoothing, low-pass filter, inner/outer loop or robustness weighting.
-"""
-struct STLDecomp <: AbstractDecomp
-    t::Vector{Float64}
-    trend::Component
-    seasonal::Component
-    noise::Component
-    rate::Component
-    θ::NamedTuple
-    smoother::NamedTuple
-    _fit_info::NamedTuple  # (Δt, grid, estimated, derived, criteria)
-end
-
-const _STL_SMOOTHERS = (
-    trend = (init = MovingAverage(), final = LOESS(; degree = 1)),
-    seasonal = (final = StableSeasonal(),)
-)
-
-_stages(::STLDecomp) = ((:trend, :init), (:seasonal, :final), (:trend, :final))
-
-"""
-    fit(STLDecomp, y, t=eachindex(y); period, smoother=(;)) -> STLDecomp
-
-Loess-based decomposition of `y` at uniformly spaced times `t`: an initial trend
-(`trend.init`, default [`MovingAverage`](@ref)`()` over one period) is removed, a seasonal
-filter (`seasonal.final`, default [`StableSeasonal`](@ref)`()`) of the detrended series
-gives the seasonal, and a trend smoother (`trend.final`, default local-linear
-[`LOESS`](@ref)) of the seasonally adjusted series gives the trend. `smoother` and the
-reported hyperparameters are as for [`X11Decomp`](@ref); a loess span left as `nothing`
-covers the smallest odd number `≥ 1.5p / (1 - 1.5 / 7)` of observations [1].
+    This is not yet the STL procedure of Cleveland et al. [1]: it has no cycle-subseries
+    smoothing, low-pass filter, inner/outer loop or robustness weighting.
 
 [1] R. B. Cleveland, W. S. Cleveland, J. E. McRae and I. Terpenning. "STL: a seasonal-trend
 decomposition procedure based on loess". Journal of Official Statistics 6 (1), 1990.
 """
-function fit(
-        ::Type{STLDecomp},
-        y::AbstractVector{<:Real},
-        t::AbstractVector{<:Real} = eachindex(y);
-        period::Real,
-        smoother::NamedTuple = (;)
+struct STL <: AbstractDecompositionModel
+    trend_init::AbstractTrendSmoother
+    seasonal_final::AbstractSeasonalSmoother
+    trend_final::AbstractTrendSmoother
+    function STL(trend_init, seasonal_final, trend_final)
+        s = (; trend_init, seasonal_final, trend_final)
+        return new(_check_stages(STL, s)...)
+    end
+end
+
+const _STL_DEFAULTS = (
+    trend_init = MovingAverage(),
+    seasonal_final = StableSeasonal(),
+    trend_final = LOESS(; degree = 1)
 )
+
+STL(; kwargs...) = STL(_stage_settings(STL, _STL_DEFAULTS, NamedTuple(kwargs))...)
+
+"""
+    fit(model::STL, y, t=eachindex(y); period) -> Decomposition{STL}
+
+Decompose `y` at uniformly spaced times `t` with at least two cycles: the initial trend
+(`trend_init`) is removed, the seasonal filter (`seasonal_final`) of the detrended series
+gives the seasonal, and the trend smoother (`trend_final`) of the seasonally adjusted series
+gives the trend. The outputs are as for `fit(::X11, ...)`.
+"""
+function fit(model::STL, y::AbstractVector{<:Real},
+        t::AbstractVector{<:Real} = eachindex(y); period::Real)
     y, t, Δt = _uniform_grid(y, t)
     p = _samples_per_period(period, Δt)
     N = length(y)
     N ≥ 2p || throw(ArgumentError("need at least two periods of observations"))
-    s = _resolve_smoothers(smoother, _STL_SMOOTHERS)
-    initial, derived_init = _resolve_trend(s.trend.init, p, Δt, N)
-    final, derived_final = _resolve_stl_trend(s.trend.final, p, Δt, N)
-    r = _Report(period)
+    initial, derived_init = _resolve_trend(model.trend_init, p, Δt, N)
+    final, derived_final = _resolve_stl_trend(model.trend_final, p, Δt, N)
+    r = _Report()
 
     trend_init = _fit(initial, y, t)
-    _record!(r, trend_init, :_trend_init; derived = keys(derived_init))
+    _record!(r, trend_init, :trend_init; derived = keys(derived_init))
     seasonal_final, seasonal, note = _seasonal(
-        s.seasonal.final, y - predict(trend_init), t, p, Δt
-    )
-    _record!(r, seasonal_final, :_seasonal_final)
+        model.seasonal_final, y - predict(trend_init), t, p, Δt)
+    _record!(r, seasonal_final, :seasonal_final)
     isnothing(note) || push!(r.criteria, :note_seasonal_final => note)
-    adjusted = y - seasonal
-    trend_final = _fit(final, adjusted, t)
-    _record!(r, trend_final, :_trend_final; derived = keys(derived_final))
-    trend_values = predict(trend_final)
+    trend_final = _fit(final, y - seasonal, t)
+    _record!(r, trend_final, :trend_final; derived = keys(derived_final))
 
-    noise = adjusted - trend_values
-    rate = _trend_rate(trend_values, Δt)
-    grid = (; t, trend = trend_values, seasonal, noise, rate)
-    θ, fit_info = _finish(r, STLDecomp, Δt, grid)
-    fitted = (trend = (init = trend_init, final = trend_final),
-        seasonal = (final = seasonal_final,))
-    return STLDecomp(
-        t,
-        Component(trend_values),
-        Component(seasonal),
-        Component(noise),
-        Component(rate),
-        θ,
-        fitted,
-        fit_info
-    )
+    smoother = (; trend_init, seasonal_final, trend_final)
+    return _filter_decomposition(
+        model, r, y, t, Δt, period, predict(trend_final), seasonal,
+        smoother)
 end
 
-# Cleveland et al.'s trend window n_t for a loess span left as nothing
+# Candidate loess spans from Cleveland et al.'s trend window n_t
 function _resolve_stl_trend(m::LOESS, p, _, N)
-    isnothing(m.span) && isnothing(m.bandwidth) || return m, (;)
-    q = _nextodd(1.5p / (1 - 1.5 / 7))
-    span = q / N
-    return LOESS(span, nothing, m.degree), (; span, neighbors = q)
+    _loess_candidates(m, _nextodd(1.5p / (1 - 1.5 / 7)), N)
 end
 
 _resolve_stl_trend(m::AbstractTrendSmoother, p, Δt, N) = _resolve_trend(m, p, Δt, N)
