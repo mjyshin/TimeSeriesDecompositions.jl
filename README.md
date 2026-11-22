@@ -67,7 +67,7 @@ A decomposition is a *model*, an immutable struct of settings, fitted to data wi
 
 - `GaussianProcess()`: Gaussian-process components with uncertainty, for any sampling
 - `X11()`: X-11-style moving-average filters, for uniform sampling and an integer period
-- `STL()`: a loess-based filter (a placeholder for the STL of Cleveland et al., 1990)
+- `STL()`: the loess filters of Cleveland et al. (1990), without robustness weights, for uniform sampling and an integer period; the seasonal window is chosen by X-11's moving seasonality ratio and the trend is locally quadratic
 
 The simplest use-case is the linear-scale, uniformly-sampled time series $y_{1:N} := \{(n,y_n)\}_{n=1}^N$ with no seasonal pattern:
 

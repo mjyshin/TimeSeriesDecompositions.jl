@@ -367,6 +367,11 @@ end
     s = repeat([1.0, -2.0, 0.5, 0.5], 6)
     @test predict(fit(StableSeasonal(), s; period = 4)) ≈ s
     @test predict(fit(SeasonalMovingAverage(), s; period = 4)) ≈ s
+    @test predict(fit(SeasonalLOESS(), s; period = 4)) ≈ s
+    # the window of a seasonal loess: an even number of periods, six by default
+    @test fit(SeasonalLOESS(), s; period = 4).model.bandwidth == 24
+    @test fit(SeasonalLOESS(; bandwidth = 9), s; period = 4).model.bandwidth == 16
+    @test sprint(show, SeasonalLOESS()) == "SeasonalLOESS(bandwidth=nothing, degree=1)"
     y = s .+ 0.1randn(24)
     f = fit(StableSeasonal(), y; period = 4)
     @test predict(f)[1] ≈ sum(y[1:4:24]) / 6
@@ -380,6 +385,10 @@ end
     end
     @test_throws DomainError predict(f, [24.5])
     @test_throws ArgumentError SeasonalMovingAverage(; n = 2)
+    @test_throws DomainError SeasonalLOESS(; bandwidth = 0)
+    @test_throws DomainError SeasonalLOESS(; degree = 3)
+    @test_throws ArgumentError fit(SeasonalLOESS(; bandwidth = 8), s; period = 4)
+    @test predict(fit(SeasonalLOESS(; bandwidth = 8, degree = 0), s; period = 4)) ≈ s
     @test_throws ArgumentError fit(StableSeasonal(), s; period = 1)
 end
 

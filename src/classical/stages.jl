@@ -38,6 +38,7 @@ end
 
 _hyperparameters(m::SeasonalMovingAverage, _) = (; m.n, m.m)
 _hyperparameters(::StableSeasonal, _) = (;)
+_hyperparameters(m::SeasonalLOESS, _) = (; m.bandwidth)
 
 _ratio(e::MinimumRevision) = (; e.ratio)
 _ratio(_) = (;)

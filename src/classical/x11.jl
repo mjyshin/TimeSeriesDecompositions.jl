@@ -10,7 +10,8 @@ order; `trend` or `seasonal` sets every stage of that component.
 - `seasonal_init`: [`SeasonalMovingAverage`](@ref)`(n=3, m=3)`.
 - `trend_interm`: `nothing`, which is `trend_final` with minimum-revision ratio `0`.
 - `seasonal_final`: `nothing`, `S3×3`, `S3×5` or `S3×9` by X-11's moving seasonality
-  ratio (`S3×3` below seven cycles).
+  ratio (`S3×3` below seven cycles). A [`SeasonalLOESS`](@ref) bandwidth left as
+  `nothing` is chosen by the same ratio.
 - `trend_final`: [`Henderson`](@ref)`()`, with its length chosen by cross-validation and
   estimated QL minimum-revision end weights.
 
@@ -90,27 +91,16 @@ function fit(model::X11, y::AbstractVector{<:Real},
     _record!(r, trend_init, :trend_init; derived = keys(derived_init))
     seasonal_init, seasonal_values, note = _seasonal(
         model.seasonal_init, y - predict(trend_init), t, p, Δt)
-    _record!(r, seasonal_init, :seasonal_init)
+    _record!(r, seasonal_init, :seasonal_init; derived = _seasonal_derived(model.seasonal_init))
     isnothing(note) || push!(r.criteria, :note_seasonal_init => note)
     trend_interm = _fit(interm, y - seasonal_values, t)
     _record!(r, trend_interm, :trend_interm; derived = keys(derived_interm))
 
     # Pass 2
     detrended = y - predict(trend_interm)
-    inner = _finite_range(detrended)
-    seasonal_model, derived, chosen = model.seasonal_final, (), ()
-    if isnothing(seasonal_model)
-        available = length(inner) ÷ p
-        if available < _MSR_MIN_CYCLES
-            note = "MSR needs $_MSR_MIN_CYCLES cycles, got $available; using S3×3"
-            push!(r.criteria, :note_msr => note)
-            seasonal_model, derived = SeasonalMovingAverage(; n = 3, m = 3), (:n, :m)
-        else
-            seasonal_model, msr = _msr_filter(detrended[inner], p)
-            push!(r.criteria, :msr => msr)
-            chosen = (:n, :m)
-        end
-    end
+    seasonal_model, derived, chosen, msr = _final_seasonal(
+        model.seasonal_final, detrended, p, p * Δt)
+    append!(r.criteria, msr)
     seasonal_final, seasonal_values, note = _seasonal(seasonal_model, detrended, t, p, Δt)
     _record!(r, seasonal_final, :seasonal_final; derived, chosen)
     isnothing(note) || push!(r.criteria, :note_seasonal_final => note)
@@ -190,7 +180,7 @@ function _seasonal(model::AbstractSeasonalSmoother, x, t, p, Δt)
     return fitted, s - offset, note
 end
 
-_fitting_seasonal(model::StableSeasonal, _) = model, nothing
+_fitting_seasonal(model::AbstractSeasonalSmoother, _) = model, nothing
 
 function _fitting_seasonal(model::SeasonalMovingAverage, cycles)
     _min_cycles(model) ≤ cycles && return model, nothing
@@ -221,6 +211,36 @@ function _moving_seasonality_ratio(detrended, p)
 end
 
 const _MSR_MIN_CYCLES = 7
+
+# Final seasonal smoother of the detrended series x (NaN where the trend is undefined), with
+# what is left as nothing chosen by the MSR: the smoother, its hyperparameters derived and
+# chosen from the data, and the MSR or a note
+function _final_seasonal(model, x, p, period)
+    _uses_msr(model) || return model, _seasonal_derived(model), (), Pair{Symbol, Any}[]
+    inner = _finite_range(x)
+    available = length(inner) ÷ p
+    names = _msr_hyperparameters(model)
+    if available < _MSR_MIN_CYCLES
+        fallback, description = _msr_fallback(model)
+        note = "MSR needs $_MSR_MIN_CYCLES cycles, got $available; using $description"
+        return fallback, names, (), Pair{Symbol, Any}[:note_msr => note]
+    end
+    filter, msr = _msr_filter(x[inner], p)
+    return _from_msr(model, filter, period), (), names, Pair{Symbol, Any}[:msr => msr]
+end
+
+_uses_msr(::Nothing) = true
+_uses_msr(m::SeasonalLOESS) = isnothing(m.bandwidth)
+_uses_msr(_) = false
+
+_msr_hyperparameters(::Nothing) = (:n, :m)
+_msr_hyperparameters(::SeasonalLOESS) = (:bandwidth,)
+
+_msr_fallback(::Nothing) = SeasonalMovingAverage(; n = 3, m = 3), "S3×3"
+_msr_fallback(m::SeasonalLOESS) = m, "a bandwidth of six periods"
+
+_from_msr(::Nothing, filter, _) = filter
+_from_msr(m::SeasonalLOESS, filter, period) = _matched_loess(filter, m.degree, period)
 
 # X-11's seasonal filter from the MSR, dropping the last cycle in the gray zones up to five
 # times, then S3×5; returns the filter and the last MSR
