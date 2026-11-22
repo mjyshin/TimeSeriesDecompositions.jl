@@ -202,6 +202,28 @@ end
     @test_throws DomainError LocalPolynomial(; bandwidth = 0)
 end
 
+@testset "bandwidth selection scores all points with the end weights" begin
+    GP = GPDecompositions
+    N, degree = length(_y), 3
+    for endpoints in (DirectAsymmetric(), musgrave(3.5), MinimumRevision())
+        f = @quietly lpf(; bandwidth = [8, 12, 16], endpoints)
+        # the score of the chosen filter: closed-form leave-one-out over all N points
+        values, self = GP._filter_values(f.state.weights, f.state.end_weights, _y)
+        @test values ≈ predict(f)
+        @test f.estimated.cv_score ≈ mean(@. ((_y - values) / (1 - self))^2)
+    end
+    # one-sided local cubic at the last point: the weighted fit without that point
+    h = 6
+    g = GP._grid_kernel(HendersonKernel(), h)
+    _, ends = GP._filter_weights(g, DirectAsymmetric(), degree)
+    v = ends[1]    # offsets -h:0 at t = N
+    d = collect((-h):-1)
+    X = [k^j for k in d, j in 0:degree]
+    W = [g.κ(k) for k in d]
+    β = (X' * (W .* X)) \ (X' * (W .* _y[N .+ d]))
+    @test (_y[N] - dot(v, _y[(N - h):N])) / (1 - v[h + 1]) ≈ _y[N] - β[1]
+end
+
 @testset "LocalPolynomial predict" begin
     t = 1:40
     cubic = @. 0.5 + 0.1t - 0.01t^2 + 0.0003t^3
