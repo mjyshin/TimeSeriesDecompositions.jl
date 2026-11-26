@@ -1,19 +1,17 @@
 using TimeSeriesDecompositions
 using Test
-using Random
 using Statistics
 using LinearAlgebra: I, Symmetric, cholesky
 using TimeSeriesDecompositions: GP, logpdf
 
 @testset "posterior mean within credible intervals (synthetic data)" begin
-    rng = 42
-    Random.seed!(rng)
+    rng = StableRNG(42)
 
     N = 60
     t = collect(1.0:Float64(N))
     trend_true = 0.05 .* t
     seasonal_true = 1.5 .* sin.(2π .* t ./ 12)
-    noise_true = 0.15 .* randn(N)
+    noise_true = 0.15 .* randn(rng, N)
     y = trend_true .+ seasonal_true .+ noise_true
 
     d = fit(GaussianProcess, y, t; period = 12.0)
@@ -24,9 +22,10 @@ using TimeSeriesDecompositions: GP, logpdf
 end
 
 @testset "static vs quasi-periodic agree on stationary data" begin
+    rng = StableRNG(101)
     N = 48
     t = collect(1.0:Float64(N))
-    y = 2.0 .* sin.(2π .* t ./ 12) .+ 0.1 .* randn(N)
+    y = 2.0 .* sin.(2π .* t ./ 12) .+ 0.1 .* randn(rng, N)
 
     d_static = fit(GaussianProcess, y, t; period = 12.0, θ_fixed = (bandwidth = Inf,))
     d_qp = fit(GaussianProcess, y, t; period = 12.0, θ_fixed = (bandwidth = 200.0,))
@@ -37,9 +36,9 @@ end
 @testset "θ_fixed respected" begin
     # seed 31: the static fit's l_trend ends on its bound, the period, and warm-starts a
     # bandwidth fit from there
-    Random.seed!(31)
+    rng = StableRNG(31)
     t = collect(1.0:30.0)
-    y = sin.(2π .* t ./ 6) .+ 0.1 .* randn(30)
+    y = sin.(2π .* t ./ 6) .+ 0.1 .* randn(rng, 30)
 
     d = fit(GaussianProcess, y, t; period = 6.0, θ_fixed = (σ_noise = 0.1,))
     @test d.period ≈ 6.0
@@ -47,9 +46,10 @@ end
 end
 
 @testset "decomposition sums to observed (approx)" begin
+    rng = StableRNG(102)
     N = 48
     t = collect(1.0:Float64(N))
-    y = sin.(2π .* t ./ 12) .+ 0.05t .+ 0.1 .* randn(N)
+    y = sin.(2π .* t ./ 12) .+ 0.05t .+ 0.1 .* randn(rng, N)
 
     d = fit(GaussianProcess, y, t; period = 12.0)
     reconstructed = d.trend.mean .+ d.seasonal.mean .+ d.noise.mean
@@ -58,12 +58,12 @@ end
 end
 
 @testset "lengthscale ordering" begin
-    Random.seed!(1)
+    rng = StableRNG(1)
     N = 120
     t = collect(1.0:Float64(N))
     trend_true = 0.03 .* t .+ 0.8 .* sin.(2π .* t ./ 200)
     envelope = 1 .+ 0.5 .* sin.(2π .* t ./ 80)
-    y = trend_true .+ envelope .* 1.5 .* sin.(2π .* t ./ 12) .+ 0.2 .* randn(N)
+    y = trend_true .+ envelope .* 1.5 .* sin.(2π .* t ./ 12) .+ 0.2 .* randn(rng, N)
 
     for bandwidth in (36.0, Inf)
         d = fit(GaussianProcess, y, t; period = 12.0, θ_fixed = (; bandwidth))
@@ -92,8 +92,9 @@ end
 end
 
 @testset "l_seasonal validation" begin
+    rng = StableRNG(103)
     t = collect(1.0:48.0)
-    y = sin.(2π .* t ./ 12) .+ 0.1 .* randn(48)
+    y = sin.(2π .* t ./ 12) .+ 0.1 .* randn(rng, 48)
     @test_throws ArgumentError fit(
         GaussianProcess, y, t; period = 12.0, θ_init = (l_seasonal = Inf,))
     @test_throws ArgumentError fit(
@@ -103,11 +104,11 @@ end
 end
 
 @testset "bandwidth estimation" begin
-    Random.seed!(3)
+    rng = StableRNG(3)
     t = collect(1.0:120.0)
     envelope = 1 .+ 0.6 .* sin.(2π .* t ./ 60)
-    evolving = 0.02 .* t .+ envelope .* sin.(2π .* t ./ 12) .+ 0.2 .* randn(120)
-    static = 0.02 .* t .+ sin.(2π .* t ./ 12) .+ 0.2 .* randn(120)
+    evolving = 0.02 .* t .+ envelope .* sin.(2π .* t ./ 12) .+ 0.2 .* randn(rng, 120)
+    static = 0.02 .* t .+ sin.(2π .* t ./ 12) .+ 0.2 .* randn(rng, 120)
 
     d = fit(GaussianProcess, evolving, t; period = 12.0)
     test = d._fit_info.fit.bandwidth_test
@@ -137,15 +138,15 @@ end
 end
 
 @testset "innovation whiteness" begin
-    Random.seed!(4)
+    rng = StableRNG(4)
     t = collect(1.0:150.0)
-    white = fit(GaussianProcess, 0.02 .* t .+ 0.3 .* randn(150), t)
+    white = fit(GaussianProcess, 0.02 .* t .+ 0.3 .* randn(rng, 150), t)
     @test white._fit_info.fit.whiteness.pvalue > 0.01
     @test white._fit_info.fit.whiteness.lags == 10
     # AR(1) noise with strong positive correlation is not white
     ϵ = zeros(150)
     for i in 2:150
-        ϵ[i] = 0.8ϵ[i - 1] + 0.3randn()
+        ϵ[i] = 0.8ϵ[i - 1] + 0.3randn(rng)
     end
     y = 0.5 .* sin.(2π .* t ./ 150) .+ ϵ
     θ = (σ_trend = 1.0, l_trend = 500.0, σ_seasonal = 0.0, l_seasonal = Inf,
@@ -160,9 +161,9 @@ end
 
 @testset "lag-wise likelihood matches AbstractGPs" begin
     G = TimeSeriesDecompositions
-    Random.seed!(6)
-    t = sort([60 .* rand(60); fill(20.0, 4); fill(41.5, 3)])    # irregular, replicates
-    y = randn(length(t))
+    rng = StableRNG(6)
+    t = sort([60 .* rand(rng, 60); fill(20.0, 4); fill(41.5, 3)])    # irregular, replicates
+    y = randn(rng, length(t))
     kernels = G._resolve_kernels((trend = SEKernel(),
         seasonal = (effect = Matern32Kernel(), envelope = Matern52Kernel())))
     θ = (σ_trend = 1.1, l_trend = 9.0, σ_seasonal = 0.4, l_seasonal = 0.8, period = 7.0,
@@ -187,18 +188,18 @@ end
 @testset "kernels are stationary, scaled to unit variance" begin
     @test_throws ArgumentError GaussianProcess(; kernel = LinearKernel())
     @test_throws ArgumentError GaussianProcess(; kernel = PeriodicKernel())
-    Random.seed!(9)
+    rng = StableRNG(9)
     t = collect(1.0:60.0)
-    y = sin.(2π .* t ./ 30) .+ 0.3 .* sin.(2π .* t ./ 6) .+ 0.1 .* randn(60)
+    y = sin.(2π .* t ./ 30) .+ 0.3 .* sin.(2π .* t ./ 6) .+ 0.1 .* randn(rng, 60)
     unit = fit(GaussianProcess, y, t; period = 6.0, kernel = SEKernel())
     scaled = fit(GaussianProcess, y, t; period = 6.0, kernel = 3.0 * SEKernel())
     @test collect(values(scaled.θ)) ≈ collect(values(unit.θ)) rtol = 1e-4
 end
 
 @testset "replicated observations have independent noise" begin
-    Random.seed!(10)
+    rng = StableRNG(10)
     t = repeat(1.0:40.0; inner = 2)
-    y = sin.(2π .* t ./ 20) .+ 0.3 .* sin.(2π .* t ./ 5) .+ 0.2 .* randn(80)
+    y = sin.(2π .* t ./ 20) .+ 0.3 .* sin.(2π .* t ./ 5) .+ 0.2 .* randn(rng, 80)
     d = fit(GaussianProcess, y, t; period = 5.0)
     @test 0.1 < d.θ.σ_noise < 0.4
     @test d.noise.mean[1:2:end] ≉ d.noise.mean[2:2:end]
@@ -212,9 +213,9 @@ end
 end
 
 @testset "warm start from a previous fit" begin
-    Random.seed!(8)
+    rng = StableRNG(8)
     t = collect(1.0:120.0)
-    y = sin.(2π .* t ./ 60) .+ 0.4 .* sin.(2π .* t ./ 7) .+ 0.1 .* randn(120)
+    y = sin.(2π .* t ./ 60) .+ 0.4 .* sin.(2π .* t ./ 7) .+ 0.1 .* randn(rng, 120)
     d = fit(GaussianProcess, y, t; period = 7.0)
     warm = fit(GaussianProcess, y, t; period = 7.0, θ_init = d.θ)
     @test warm._fit_info.fit.loglik ≥ d._fit_info.fit.loglik - 1e-3
@@ -223,9 +224,9 @@ end
 
 @testset "rate matches the closed-form derivative posterior" begin
     # SE trend: cov(f(s), f'(t)) = k(s, t)(s - t) / l², var f'(t) = σ² / l²
-    Random.seed!(1)
+    rng = StableRNG(1)
     t = collect(1.0:80.0)
-    y = 0.05t .+ sin.(t ./ 7) .+ 0.2randn(80)
+    y = 0.05t .+ sin.(t ./ 7) .+ 0.2randn(rng, 80)
     d = fit(GaussianProcess, y, t; kernel = SEKernel(),
         θ_fixed = (σ_trend = 1.0, l_trend = 15.0, σ_noise = 0.2))
     tp = collect(0.0:0.25:90.0)
@@ -242,22 +243,23 @@ end
 end
 
 @testset "components sum to the observation posterior" begin
-    Random.seed!(2)
+    rng = StableRNG(2)
     t = collect(1.0:48.0)
-    y = sin.(2π .* t ./ 12) .+ 0.05t .+ 0.1 .* randn(48)
+    y = sin.(2π .* t ./ 12) .+ 0.05t .+ 0.1 .* randn(rng, 48)
     d = fit(GaussianProcess, y, t; period = 12.0, θ_fixed = (bandwidth = 30.0,))
     total = d.trend.mean .+ d.seasonal.mean .+ d.noise.mean
     @test total ≈ y rtol = 1e-4
 end
 
 @testset "input validation" begin
+    rng = StableRNG(104)
     t = collect(1.0:30.0)
     @test_throws ArgumentError fit(GaussianProcess, fill(2.0, 30), t)
-    @test_throws ArgumentError fit(GaussianProcess, [NaN; randn(29)], t)
-    @test_throws DimensionMismatch fit(GaussianProcess, randn(29), t)
+    @test_throws ArgumentError fit(GaussianProcess, [NaN; randn(rng, 29)], t)
+    @test_throws DimensionMismatch fit(GaussianProcess, randn(rng, 29), t)
     # repeated times: the sampling interval for the whiteness lags ignores ties
     t2 = repeat(1.0:30.0; inner = 3)
-    y2 = sin.(2π .* t2 ./ 6) .+ 0.1 .* randn(90)
+    y2 = sin.(2π .* t2 ./ 6) .+ 0.1 .* randn(rng, 90)
     d = fit(GaussianProcess, y2, t2; period = 6.0, θ_fixed = (bandwidth = Inf,))
     @test d._fit_info.fit.whiteness.lags == 12
 end

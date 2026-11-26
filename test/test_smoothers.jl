@@ -2,12 +2,9 @@ using TimeSeriesDecompositions
 using DelimitedFiles
 using LinearAlgebra: dot
 using Logging
-using Random
+using Random: shuffle
 using Statistics: mean
 using Test
-
-Random.seed!(2)
-const _y = [sin(2π * t / 12) + 0.02t + 0.3randn() for t in 1:120]
 
 # Henderson weights in closed form (X-11; m = h + 2)
 function henderson_closed_form(h)
@@ -30,7 +27,7 @@ function musgrave_closed_form(w, M, R)
 end
 
 function lpf(;
-        y = _y, bandwidth = 12, degree = 3, kernel = HendersonKernel(),
+        y = _ys, bandwidth = 12, degree = 3, kernel = HendersonKernel(),
         endpoints = MinimumRevision()
 )
     return fit(LocalPolynomial(; bandwidth, degree, kernel, endpoints), y)
@@ -56,13 +53,14 @@ loess(y, t = eachindex(y); wts = nothing, kwargs...) = fit(LOESS(; kwargs...), y
 end
 
 @testset "Henderson symmetric weights" begin
+    rng = StableRNG(301)
     # Published 13-term weights, j = 0:6
     f = lpf(; bandwidth = 12, endpoints = NoEndpoints())
     @test f.state.weights[7:13] ≈
           [0.240057, 0.214337, 0.147357, 0.065492, 0.0, -0.027864, -0.019350] atol = 1e-6
     for bandwidth in (4, 6, 8, 12, 22, 50, 100)
         h = bandwidth ÷ 2
-        y = randn(max(bandwidth + 1, 120))
+        y = randn(rng, max(bandwidth + 1, 120))
         w = lpf(; y = y, bandwidth, endpoints = NoEndpoints()).state.weights
         @test w ≈ henderson_closed_form(h) atol = 1e-10
         @test sum(w) ≈ 1
@@ -165,14 +163,14 @@ end
     final = predict(lpf(; endpoints = NoEndpoints()))
     function msre(ratio)
         v = lpf(; endpoints = MinimumRevision(; degree = 1, ratio)).state.end_weights[1]
-        return sum(abs2(final[t] - dot(v, _y[(t - h):t])) for t in (h + 1):(120 - h))
+        return sum(abs2(final[t] - dot(v, _ys[(t - h):t])) for t in (h + 1):(120 - h))
     end
     for ratio in (0.0, 1e-3, 1e-2, 1e-1, 1.0, Inf)
         @test msre(f.model.endpoints.ratio) ≤ msre(ratio) + 1e-10
     end
 
     # Too short to estimate: falls back to ratio 0 and says so
-    short = lpf(; y = _y[1:20])
+    short = lpf(; y = _ys[1:20])
     @test short.model.endpoints.ratio == 0
     @test haskey(short.estimated, :note_ratio)
 end
@@ -196,7 +194,8 @@ end
     @test f.estimated.bandwidth == f.model.bandwidth
     @test lpf(; bandwidth = [8, 12], endpoints = NoEndpoints()).model.bandwidth ∈ (8, 12)
     # in units of t: the same filter on a grid of spacing 0.5
-    g = fit(LocalPolynomial(; bandwidth = 6, endpoints = NoEndpoints()), _y, 0.5 .* (1:120))
+    g = fit(LocalPolynomial(; bandwidth = 6, endpoints = NoEndpoints()), _ys, 0.5 .*
+                                                                              (1:120))
     @test g.state.weights ≈ lpf(; bandwidth = 12, endpoints = NoEndpoints()).state.weights
     @test_throws ArgumentError lpf(; bandwidth = 11)    # odd multiple of Δ
     @test_throws DomainError LocalPolynomial(; bandwidth = 0)
@@ -204,13 +203,13 @@ end
 
 @testset "bandwidth selection scores all points with the end weights" begin
     GP = TimeSeriesDecompositions
-    N, degree = length(_y), 3
+    N, degree = length(_ys), 3
     for endpoints in (DirectAsymmetric(), musgrave(3.5), MinimumRevision())
         f = @quietly lpf(; bandwidth = [8, 12, 16], endpoints)
         # the score of the chosen filter: closed-form leave-one-out over all N points
-        values, self = GP._filter_values(f.state.weights, f.state.end_weights, _y)
+        values, self = GP._filter_values(f.state.weights, f.state.end_weights, _ys)
         @test values ≈ predict(f)
-        @test f.estimated.cv_score ≈ mean(@. ((_y - values) / (1 - self))^2)
+        @test f.estimated.cv_score ≈ mean(@. ((_ys - values) / (1 - self))^2)
     end
     # one-sided local cubic at the last point: the weighted fit without that point
     h = 6
@@ -220,11 +219,12 @@ end
     d = collect((-h):-1)
     X = [k^j for k in d, j in 0:degree]
     W = [g.κ(k) for k in d]
-    β = (X' * (W .* X)) \ (X' * (W .* _y[N .+ d]))
-    @test (_y[N] - dot(v, _y[(N - h):N])) / (1 - v[h + 1]) ≈ _y[N] - β[1]
+    β = (X' * (W .* X)) \ (X' * (W .* _ys[N .+ d]))
+    @test (_ys[N] - dot(v, _ys[(N - h):N])) / (1 - v[h + 1]) ≈ _ys[N] - β[1]
 end
 
 @testset "LocalPolynomial predict" begin
+    rng = StableRNG(302)
     t = 1:40
     cubic = @. 0.5 + 0.1t - 0.01t^2 + 0.0003t^3
     f = lpf(; y = cubic, endpoints = DirectAsymmetric())
@@ -236,14 +236,14 @@ end
     end
 
     f = lpf()
-    @test predict(fit(f.model, reverse(_y))) ≈ reverse(predict(f))    # mirrored start
-    @test length(predict(fit(f.model, randn(13)))) == 13
-    @test_throws ArgumentError fit(f.model, randn(12))
+    @test predict(fit(f.model, reverse(_ys))) ≈ reverse(predict(f))    # mirrored start
+    @test length(predict(fit(f.model, randn(rng, 13)))) == 13
+    @test_throws ArgumentError fit(f.model, randn(rng, 12))
     x = predict(lpf(; endpoints = NoEndpoints()))
     @test all(isnan, x[[1:6; 115:120]])
     @test all(isfinite, x[7:114])
-    @test fit(Henderson, _y; bandwidth = 12).model ==
-          Henderson(; bandwidth = 12) |> m -> fit(m, _y).model
+    @test fit(Henderson, _ys; bandwidth = 12).model ==
+          Henderson(; bandwidth = 12) |> m -> fit(m, _ys).model
 end
 
 @testset "type stability and defaults" begin
@@ -254,17 +254,18 @@ end
         MovingAverage(; bandwidth = 12),
         LOESS(; span = 0.3)
     )
-        f = @inferred TimeSeriesDecompositions._fit(model, _y, t)
+        f = @inferred TimeSeriesDecompositions._fit(model, _ys, t)
         @test @inferred(predict(f, [10.5, 60.25])) isa Vector{Float64}
     end
     # a bandwidth left as nothing is chosen from 2h = 4 up to h = (N - 1) ÷ 4
-    f = @quietly fit(Henderson(; endpoints = NoEndpoints()), _y)
-    @test f.model.bandwidth ∈ 4:2:(2 * ((length(_y) - 1) ÷ 4))
+    f = @quietly fit(Henderson(; endpoints = NoEndpoints()), _ys)
+    @test f.model.bandwidth ∈ 4:2:(2 * ((length(_ys) - 1) ÷ 4))
     @test haskey(f.estimated, :cv_score) && haskey(f.estimated, :autocorrelation_z)
-    @test_logs (:info, r"^Henderson") match_mode = :any fit(Henderson(), _y)
+    @test_logs (:info, r"^Henderson") match_mode = :any fit(Henderson(), _ys)
 end
 
 @testset "LocalPolynomial between grid points" begin
+    rng = StableRNG(303)
     t = 1:40
     p(x) = 0.5 + 0.1x - 0.01x^2 + 0.0003x^3
     xs = [1.3, 3.5, 20.25, 37.5, 39.9]
@@ -288,10 +289,11 @@ end
         @test predict(m, [x - 1e-7, x + 1e-7] .|> z -> clamp(z, 1, 120)) ≈
               fill(predict(m)[Int(x)], 2) atol = 1e-5
     end
-    @test_throws ArgumentError fit(Henderson(; bandwidth = 12), _y, sort(rand(120)))
+    @test_throws ArgumentError fit(Henderson(; bandwidth = 12), _ys, sort(rand(rng, 120)))
 end
 
 @testset "LocalPolynomial validation" begin
+    rng = StableRNG(304)
     @test_throws ArgumentError lpf(; bandwidth = 11)
     @test_throws ArgumentError lpf(; bandwidth = 4, endpoints = DirectAsymmetric())    # h < d
     @test_throws ArgumentError lpf(; endpoints = MinimumRevision(; degree = 3, ratio = 0.1))
@@ -305,17 +307,18 @@ end
     f = lpf(; bandwidth = 6, degree = 4, endpoints = MinimumRevision(; degree = 2))
     @test isfinite(f.model.endpoints.ratio)
     @test all(isfinite, predict(f))
-    @test_throws ArgumentError lpf(; y = randn(60), bandwidth = 2, degree = 2)
+    @test_throws ArgumentError lpf(; y = randn(rng, 60), bandwidth = 2, degree = 2)
     @test_throws DomainError MinimumRevision(; ratio = -1)
     @test_throws DomainError musgrave(0)
     @test_throws ArgumentError lpf(; y = [1.0, NaN, 3.0])
 end
 
 @testset "MovingAverage on a grid" begin
+    rng = StableRNG(305)
     x = collect(1.0:30)
     # Odd bandwidth: the simple average; even bandwidth: the centered 2 × m average
     @test predict(fit(MovingAverage(; bandwidth = 5), x))[3:28] ≈ x[3:28]
-    y = randn(40)
+    y = randn(rng, 40)
     ma = predict(fit(MovingAverage(; bandwidth = 12), y))
     @test ma[7:34] ≈ [dot([0.5; ones(11); 0.5] ./ 12, y[(i - 6):(i + 6)]) for i in 7:34]
     @test all(isnan, ma[[1:6; 35:40]])
@@ -332,14 +335,14 @@ end
     for x in (6.0, 6.5, 7.0, 34.0, 34.5, 35.0)    # continuous where end weights take over
         @test predict(mr, [x - 1e-7]) ≈ predict(mr, [x + 1e-7]) atol = 1e-5
     end
-    @test_throws ArgumentError fit(MovingAverage(; bandwidth = 12), y, sort(rand(40)) .*
+    @test_throws ArgumentError fit(MovingAverage(; bandwidth = 12), y, sort(rand(rng, 40)) .*
                                                                        40;) |>
                                f -> fit(MovingAverage(; bandwidth = 12, endpoints = DirectAsymmetric()), y, f.t)
     @test_throws ArgumentError fit(MovingAverage(), y)
 end
 
 @testset "MovingAverage at irregular times" begin
-    rng = Xoshiro(3)
+    rng = StableRNG(3)
     t = sort((1:240) .+ 0.4 .* (2 .* rand(rng, 240) .- 1))    # jittered grid
     seasonal = sin.(2π .* t ./ 12)
     f = fit(MovingAverage(; bandwidth = 12), seasonal, t)
@@ -353,7 +356,7 @@ end
     @test predict(g, [3.0]) ≈ [(3 + 3 + 4) / 3]
     # A gap wider than the window gives NaN with a warning
     gappy = [1.0:50; 80.0:130]
-    logs, h = Test.collect_test_logs(() -> fit(MovingAverage(; bandwidth = 6), randn(101), gappy))
+    logs, h = Test.collect_test_logs(() -> fit(MovingAverage(; bandwidth = 6), randn(rng, 101), gappy))
     @test any(l -> l.level == Logging.Warn && occursin("gap", l.message), logs)
     @test isnan(predict(h, [57.0])[1])    # the window lies in the cell of t = 50
     @test isfinite(predict(h, [25.0])[1])
@@ -364,6 +367,7 @@ end
 end
 
 @testset "seasonal smoothers" begin
+    rng = StableRNG(308)
     s = repeat([1.0, -2.0, 0.5, 0.5], 6)
     @test predict(fit(StableSeasonal(), s; period = 4)) ≈ s
     @test predict(fit(SeasonalMovingAverage(), s; period = 4)) ≈ s
@@ -372,7 +376,7 @@ end
     @test fit(SeasonalLOESS(), s; period = 4).model.bandwidth == 24
     @test fit(SeasonalLOESS(; bandwidth = 9), s; period = 4).model.bandwidth == 16
     @test sprint(show, SeasonalLOESS()) == "SeasonalLOESS(bandwidth=nothing, degree=1)"
-    y = s .+ 0.1randn(24)
+    y = s .+ 0.1randn(rng, 24)
     f = fit(StableSeasonal(), y; period = 4)
     @test predict(f)[1] ≈ sum(y[1:4:24]) / 6
     @test predict(f, [5.0, 5.0 + 1e-12]) == predict(f)[[5, 5]]
@@ -416,8 +420,9 @@ end
 end
 
 @testset "LOESS bandwidth and weights" begin
-    t = sort(rand(60) .* 20)
-    y = sin.(t) .+ 0.2randn(60)
+    rng = StableRNG(306)
+    t = sort(rand(rng, 60) .* 20)
+    y = sin.(t) .+ 0.2randn(rng, 60)
     tn = range(t[1], t[end]; length = 13)
     s = loess(y, t; bandwidth = 6.0, degree = 1)    # twice the radius λ = 3
     @test predict(s, tn) ≈ [loess_reference(t, y, 3.0, 1, x) for x in tn]
@@ -432,7 +437,7 @@ end
     @test predict(wide, tn) ≈ [loess_reference(t, y, λwide(x), 1, x) for x in tn]
     @test_throws ArgumentError loess([1.0, 2, 3, 4], [0, 1, 10, 11]; bandwidth = 4)
 
-    wts = rand(60)
+    wts = rand(rng, 60)
     s = loess(y, t; span = 0.3, degree = 1, wts)
     x = t[20]
     λq = sort(abs.(t .- x))[TimeSeriesDecompositions._span_neighbors(0.3, 60)]
@@ -442,7 +447,7 @@ end
 @testset "LOESS on a grid equals the tricube LocalPolynomial" begin
     for degree in 1:2, q in (9, 15, 21)
 
-        s = loess(_y; span = q / 120, degree)
+        s = loess(_ys; span = q / 120, degree)
         f = lpf(; bandwidth = q - 3, degree, kernel = TricubeKernel(), endpoints = NoEndpoints())
         inner = ((q + 1) ÷ 2):(120 - (q - 1) ÷ 2)    # symmetric neighborhoods
         @test predict(s)[inner] ≈ predict(f)[inner] atol = 1e-12
@@ -450,8 +455,9 @@ end
 end
 
 @testset "LOESS interpolation and reproduction" begin
-    t = sort(rand(40) .* 10)
-    tn = sort(rand(25) .* (t[end] - t[1]) .+ t[1])
+    rng = StableRNG(307)
+    t = sort(rand(rng, 40) .* 10)
+    tn = sort(rand(rng, 25) .* (t[end] - t[1]) .+ t[1])
     for degree in 0:2
         p(x) = evalpoly(x, [1.0, -0.5, 0.2][1:(degree + 1)])
         for kwargs in ((; span = 0.25), (; bandwidth = 5.0), (;
@@ -461,50 +467,51 @@ end
             @test predict(s) ≈ p.(s.t)
         end
     end
-    s = loess(_y; span = 0.15)
+    s = loess(_ys; span = 0.15)
     @test predict(s, s.t) == predict(s)
     @test fitted(s) == predict(s)
     @test residuals(s) ≈ s.y - predict(s)
     @test_throws DomainError predict(s, [0.0])
     @test length(predict(s, [0.0, 121.0]; extrapolate = true)) == 2
-    perm = shuffle(1:120)    # unsorted input is sorted by t
-    @test predict(loess(_y[perm], perm; span = 0.15)) ≈ predict(s)
+    perm = shuffle(StableRNG(310), 1:120)    # unsorted input is sorted by t
+    @test predict(loess(_ys[perm], perm; span = 0.15)) ≈ predict(s)
 end
 
 @testset "LOESS validation" begin
-    @test_throws DomainError loess(_y; span = 0)
-    @test_throws DomainError loess(_y; bandwidth = -1)
-    @test_throws ArgumentError loess(_y; span = 0.02)    # q < degree + 2
-    @test_throws DomainError loess(_y; span = 0.5, degree = 3)
-    @test_throws ArgumentError loess(_y; span = 0.5, wts = (-ones(120)))
-    @test_throws DimensionMismatch loess(_y, 1:10; span = 0.5)
+    @test_throws DomainError loess(_ys; span = 0)
+    @test_throws DomainError loess(_ys; bandwidth = -1)
+    @test_throws ArgumentError loess(_ys; span = 0.02)    # q < degree + 2
+    @test_throws DomainError loess(_ys; span = 0.5, degree = 3)
+    @test_throws ArgumentError loess(_ys; span = 0.5, wts = (-ones(120)))
+    @test_throws DimensionMismatch loess(_ys, 1:10; span = 0.5)
     @test_throws ArgumentError loess(
         [1.0, 2.0, 3.0, 4.0], [1, 1, 1, 2]; span = 0.75, degree = 1
     )    # three observations tied at t = 1
 end
 
 @testset "LOESS span selection (leave-one-out)" begin
-    logs, s = Test.collect_test_logs(() -> loess(_y))
+    logs, s = Test.collect_test_logs(() -> loess(_ys))
     @test length(logs) == 1
     @test logs[1].group === :estimated
     @test s.estimated.span == s.model.span
     @test haskey(s.estimated, :enp) && haskey(s.estimated, :cv_score)
     # candidate spans, scored by the same criterion
-    c = loess(_y; span = [0.1, s.model.span, 0.9])
+    c = loess(_ys; span = [0.1, s.model.span, 0.9])
     @test c.model.span == s.model.span
     @test c.estimated.cv_score ≈ s.estimated.cv_score
-    @test_logs min_level = Logging.Info loess(_y; span = 0.3)
-    @test_logs min_level = Logging.Info loess(_y; bandwidth = 10)
+    @test_logs min_level = Logging.Info loess(_ys; span = 0.3)
+    @test_logs min_level = Logging.Info loess(_ys; bandwidth = 10)
 
     # Spans too small for tied times are skipped rather than failing
+    rng = StableRNG(309)
     for replicates in (3, 5)
         tied = repeat(1.0:50; inner = replicates)
-        s = loess(sin.(tied ./ 5) .+ 0.1randn(length(tied)), tied)
+        s = loess(sin.(tied ./ 5) .+ 0.1randn(rng, length(tied)), tied)
         @test isfinite(s.estimated.cv_score)
     end
 
     # Warns about autocorrelated errors, but not for independent ones
-    rng = Xoshiro(11)
+    rng = StableRNG(11)
     ar = zeros(500)
     for i in 2:500
         ar[i] = 0.5ar[i - 1] + randn(rng)
@@ -515,7 +522,7 @@ end
 end
 
 @testset "closed-form leave-one-out residuals" begin
-    rng = Xoshiro(5)
+    rng = StableRNG(5)
     t = collect(1.0:60)
     y = sin.(t ./ 8) .+ 0.2randn(rng, 60)
     # loess with a fixed window: refitting without observation i

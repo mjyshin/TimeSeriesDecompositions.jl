@@ -1,13 +1,7 @@
 using TimeSeriesDecompositions
 using Logging
 using Test
-using Random
 using Statistics: mean
-
-Random.seed!(1)
-
-const _tc = collect(2000 .+ (0:119) ./ 12)    # monthly, 10 years
-const _yc = sin.(2π .* _tc) .+ 0.2 .* (_tc .- 2000) .+ 0.1 .* randn(120)
 
 @testset "$D basic API" for D in (X11, STL)
     d = fit(D, _yc, _tc; period = 1.0)
@@ -88,9 +82,10 @@ end
 @testset "$D predict off the grid for period $p" for D in (X11, STL),
     p in (2, 5)
 
+    rng = StableRNG(201)
     N = 10p
     x = 1:N
-    y = 0.1x .+ cospi.(2 .* x ./ p .+ 0.2) .* (p > 2) .+ 0.05 .* randn(N)
+    y = 0.1x .+ cospi.(2 .* x ./ p .+ 0.2) .* (p > 2) .+ 0.05 .* randn(rng, N)
     d = fit(D, y, x; period = p)
     k = N ÷ 2
     near = predict(d, k .+ [-1e-6, 1e-6])
@@ -200,45 +195,47 @@ end
 end
 
 @testset "X11 period-general defaults" begin
+    rng = StableRNG(202)
     # candidate trend lengths start at the period, so the trend cannot absorb the seasonal
     for (p, bandwidth) in ((2, 4), (4, 4), (7, 8), (12, 12), (24, 24))
         N = 10p
         m, derived = TimeSeriesDecompositions._resolve_trend(Henderson(), p, 1.0, N)
         @test first(m.bandwidth) == bandwidth && last(m.bandwidth) == 2 * ((N - 1) ÷ 4)
         @test isempty(derived)
-        @test fit(X11, randn(N); period = p).θ.bandwidth_trend_final ≥ bandwidth
+        @test fit(X11, randn(rng, N); period = p).θ.bandwidth_trend_final ≥ bandwidth
     end
     # Seasonal filters needing more cycles than available are shortened
     s39 = SeasonalMovingAverage(; n = 3, m = 9)
-    d = fit(X11, randn(6 * 12); period = 12, seasonal_final = s39)
+    d = fit(X11, randn(rng, 6 * 12); period = 12, seasonal_final = s39)
     @test d.smoother.seasonal_final.model == SeasonalMovingAverage(; n = 3, m = 3)
     @test (d.θ.n_seasonal_final, d.θ.m_seasonal_final) == (3, 3)
     @test haskey(d._fit_info.criteria, :note_seasonal_final)
     @test d.smoother.seasonal_init.model == SeasonalMovingAverage(; n = 3, m = 3)
-    d = fit(X11, randn(4 * 12); period = 12)
+    d = fit(X11, randn(rng, 4 * 12); period = 12)
     @test d.smoother.seasonal_final.model isa StableSeasonal
     @test d.smoother.seasonal_init.model isa StableSeasonal
-    @test_throws ArgumentError fit(X11, randn(2 * 12 + 11); period = 12)
+    @test_throws ArgumentError fit(X11, randn(rng, 2 * 12 + 11); period = 12)
 end
 
 @testset "moving seasonality ratio (X-11 D9A)" begin
+    rng = StableRNG(203)
     # Pure noise: sd(ΔI) / sd(ΔS) = (10/7) / (√2/7) = 10/√2 for the 7-term average
-    msr = TimeSeriesDecompositions._moving_seasonality_ratio(randn(400 * 12), 12)
+    msr = TimeSeriesDecompositions._moving_seasonality_ratio(randn(rng, 400 * 12), 12)
     @test msr ≈ 10 / √2 rtol = 0.05
     p, N = 12, 240
     moving = [(1 + 0.5sin(2π * t / 5p)) * 3sin(2π * t / p) + 0.4(t ÷ p) * cos(2π * t / p)
               for
               t in 1:N]
-    d = fit(X11, moving .+ 0.02randn(N); period = p)
+    d = fit(X11, moving .+ 0.02randn(rng, N); period = p)
     @test d._fit_info.criteria.msr < 2.5
     @test d.smoother.seasonal_final.model == SeasonalMovingAverage(; n = 3, m = 3)
     @test (d.θ.n_seasonal_final, d.θ.m_seasonal_final) == (3, 3)
     @test [:n_seasonal_final, :m_seasonal_final] ⊆ d._fit_info.estimated
     fixed = [3sin(2π * t / p) for t in 1:N]
-    d = fit(X11, fixed .+ randn(N); period = p)
+    d = fit(X11, fixed .+ randn(rng, N); period = p)
     @test d._fit_info.criteria.msr > 6.5
     @test d.smoother.seasonal_final.model == SeasonalMovingAverage(; n = 3, m = 9)
-    d = fit(X11, randn(6p); period = p)
+    d = fit(X11, randn(rng, 6p); period = p)
     @test haskey(d._fit_info.criteria, :note_msr)
     @test [:n_seasonal_final, :m_seasonal_final] ⊆ d._fit_info.derived
 end
@@ -246,9 +243,10 @@ end
 @testset "X11 reproduces linear trend plus fixed seasonal ($trend)" for trend in (
     Henderson(), LOESS(), LocalPolynomial(; degree = 2, kernel = TricubeKernel())
 )
+    rng = StableRNG(204)
     for p in (2, 3, 4, 7, 12), N in (12p, 12p + 5, 3p + p ÷ 2 + 1)
 
-        s = randn(p)
+        s = randn(rng, p)
         s .-= sum(s) / p
         seasonal = [s[mod1(t, p)] for t in 1:N]
         linear = [2 + 0.3t for t in 1:N]
@@ -267,9 +265,10 @@ end
 end
 
 @testset "X11 with a moving-average trend reproduces it in the interior" begin
+    rng = StableRNG(205)
     for p in (4, 7, 12)
         N = 12p
-        s = randn(p)
+        s = randn(rng, p)
         s .-= sum(s) / p
         seasonal = [s[mod1(t, p)] for t in 1:N]
         linear = [2 + 0.3t for t in 1:N]
@@ -381,12 +380,13 @@ end
 end
 
 @testset "X11 with a loess trend" begin
+    rng = StableRNG(206)
     # candidate spans start at the smallest odd number ≥ p + 3 (at least 7) of neighbors
     for (p, neighbors) in ((4, 7), (7, 11), (12, 15))
         N = 10p
         m, _ = TimeSeriesDecompositions._resolve_trend(LOESS(), p, 1.0, N)
         @test round(Int, first(m.span) * N) == neighbors && last(m.span) == 1
-        d = @quietly fit(X11, randn(N); period = p, trend_final = LOESS())
+        d = @quietly fit(X11, randn(rng, N); period = p, trend_final = LOESS())
         @test d.θ.neighbors_trend_final ≥ neighbors
         f = d.smoother.trend_final
         @test f isa FittedSmoother{LOESS}
@@ -475,7 +475,7 @@ end
 @testset "X11 trend length near the interior optimum" begin
     # smooth trend, weekly pattern and independent noise: leave-one-out targets the error of
     # the trend, and comes close to the best interior estimate of it
-    rng = Xoshiro(7)
+    rng = StableRNG(7)
     N, p = 300, 7
     t = 1:N
     trend = 0.8 .* sin.(2π .* t ./ 90) .+ 0.3 .* sin.(2π .* t ./ 37)
