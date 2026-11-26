@@ -49,7 +49,8 @@ end
 end
 
 @testset "quietly silences fit" begin
+    rng = StableRNG(401)
     t = collect(1.0:30.0)
-    y = sin.(2π .* t ./ 6) .+ 0.05 .* randn(30)
+    y = sin.(2π .* t ./ 6) .+ 0.05 .* randn(rng, 30)
     @test_logs min_level = Logging.Info (@quietly fit(LOESS, y, t)) isa FittedSmoother
 end

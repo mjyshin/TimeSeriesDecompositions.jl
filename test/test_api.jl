@@ -1,9 +1,6 @@
 using TimeSeriesDecompositions
 using Test
 
-const _t = collect(1.0:50.0)
-const _y = sin.(2π .* _t ./ 12) .+ 0.01 .* _t .+ 0.1 .* randn(50)
-
 @testset "model and shorthand" begin
     m = GaussianProcess(; approx_rate = true)
     d = fit(m, _y, _t; period = 12.0)

@@ -314,14 +314,14 @@ function _estimate_ratio(e::MinimumRevision{Nothing}, g::_GridKernel, y, degree)
 
     log_grid = -4:0.1:2
     grid = [0.0; exp10.(log_grid); _allows_infinite_ratio(e, r) ? [Inf] : Float64[]]
-    scores = msre.(grid)
+    scores = Float64[msre(ρ) for ρ in grid]    # typed: sys_inf may be nothing
     i = argmin(scores)
     ratio, score = grid[i], scores[i]
     if 1 < i ≤ length(log_grid) + 1
         lo, hi = log_grid[max(i - 2, 1)], log_grid[min(i, length(log_grid))]
         res = optimize(s -> msre(exp10(s)), lo, hi, Brent())
         if Optim.minimum(res) < score
-            ratio, score = exp10(Optim.minimizer(res)), Optim.minimum(res)
+            ratio, score = exp10(Optim.minimizer(res))::Float64, Optim.minimum(res)::Float64
         end
     end
     return MinimumRevision(e.degree, ratio), (; ratio, msre = score)
