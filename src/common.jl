@@ -43,6 +43,8 @@ end
 A decomposition fitted by `fit(model::M, y, t; period)`, with fields `model`, `t`, `period`,
 `trend`, `seasonal`, `noise`, `rate` (each a [`Component`](@ref) or `nothing`), the
 hyperparameters `θ` and, for filter models, the fitted stage smoothers `smoother`.
+The `rate` is the trend's rate of change dx̄/dt, in units of `y` per unit of `t`; for
+log-transformed data, it is the exponential growth rate.
 Evaluate at other times with `predict(d, t_new)`; `d[:name]` is `d.name`.
 
 With Plots.jl loaded, `plot(d)` draws one panel per component, `plot(d, :trend)` one, and

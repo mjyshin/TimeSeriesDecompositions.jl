@@ -1,6 +1,6 @@
 """
-    GaussianProcess(; kernel=Matern52Kernel(), θ_init=(;), θ_fixed=(;), approx_rate=false,
-                    optimizer=LBFGS(...), max_iter=1000)
+    GaussianProcess(; kernel=Matern52Kernel(), θ_init=(;), θ_fixed=(;), optimizer=LBFGS(...),
+                    max_iter=1000)
 
 Gaussian-process decomposition model: trend, seasonal and noise processes whose
 hyperparameters maximize the marginal likelihood. Components have posterior means,
@@ -14,7 +14,6 @@ standard deviations and credible intervals, in the units of `y`.
   `l_seasonal`, `bandwidth`, `σ_noise` (e.g. the `θ` of a previous fit). `σ = 0` and
   `l_trend = Inf` are held fixed.
 - `θ_fixed`: hyperparameters held fixed, with the same keys; they override `θ_init`.
-- `approx_rate`: skip the rate's posterior variance (`std` is `NaN`).
 - `optimizer`, `max_iter`: Optim.jl optimizer and iteration limit; the gradient of the
   marginal likelihood is exact.
 
@@ -46,25 +45,23 @@ struct GaussianProcess{O} <: AbstractDecompositionModel
     kernel::NamedTuple
     θ_init::NamedTuple
     θ_fixed::NamedTuple
-    approx_rate::Bool
     optimizer::O
     max_iter::Int
     function GaussianProcess(kernel, θ_init::NamedTuple, θ_fixed::NamedTuple,
-            approx_rate::Bool, optimizer::O, max_iter::Integer) where {O}
+            optimizer::O, max_iter::Integer) where {O}
         θ_init, θ_fixed = _check_θ(θ_init, "θ_init"), _check_θ(θ_fixed, "θ_fixed")
         both = [k for k in keys(θ_init) if haskey(θ_fixed, k)]
         isempty(both) ||
             @warn "θ_init and θ_fixed both give $(join(both, ", ")): using θ_fixed"
         max_iter ≥ 0 || throw(DomainError(max_iter, "max_iter must be non-negative"))
-        return new{O}(_resolve_kernels(kernel), θ_init, θ_fixed, approx_rate, optimizer,
-            max_iter)
+        return new{O}(_resolve_kernels(kernel), θ_init, θ_fixed, optimizer, max_iter)
     end
 end
 
 function GaussianProcess(; kernel::Union{Kernel, NamedTuple} = _DEFAULT_KERNEL,
-        θ_init::NamedTuple = (;), θ_fixed::NamedTuple = (;), approx_rate::Bool = false,
+        θ_init::NamedTuple = (;), θ_fixed::NamedTuple = (;),
         optimizer = _default_optimizer, max_iter::Integer = 1_000)
-    return GaussianProcess(kernel, θ_init, θ_fixed, approx_rate, optimizer, max_iter)
+    return GaussianProcess(kernel, θ_init, θ_fixed, optimizer, max_iter)
 end
 
 const _GP_HYPERPARAMETERS = (
@@ -96,8 +93,7 @@ function Base.show(io::IO, ::MIME"text/plain", d::Decomposition{<:GaussianProces
     _show_header(io, d)
 
     comps = join(
-        ["trend"; has_seasonal ? ["seasonal"] : []; has_noise ? ["noise"] : [];
-         d.model.approx_rate ? "rate (no std: approx_rate)" : "rate"],
+        ["trend"; has_seasonal ? ["seasonal"] : []; has_noise ? ["noise"] : []; "rate"],
         ", "
     )
     _show_line(io, "components", comps)
