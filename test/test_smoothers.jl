@@ -283,7 +283,7 @@ end
     u = lpf(; degree = 1, kernel = UniformKernel(), endpoints = DirectAsymmetric())
     @test predict(u, [12 - 1e-7]) ≈ predict(u, [12 + 1e-7]) atol = 1e-5
     # Near the ends, minimum-revision estimates are interpolated: continuous, exact at
-    # grid points, and meeting the symmetric part continuously
+    # grid points and meeting the symmetric part continuously
     m = lpf(; endpoints = musgrave(3.5))
     for x in (120.0, 114.0, 1.0, 7.0)
         @test predict(m, [x - 1e-7, x + 1e-7] .|> z -> clamp(z, 1, 120)) ≈

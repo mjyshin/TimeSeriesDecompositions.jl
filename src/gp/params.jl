@@ -13,7 +13,7 @@ function _unconstrained(p::_Free)
     return log(u / (1 - u))
 end
 
-# Free hyperparameters, their unconstrained starting point, and the map back to θ
+# Free hyperparameters, their unconstrained starting point and the map back to θ
 function _flatten(spec::NamedTuple)
     free = [k for (k, v) in pairs(spec) if v isa _Free]
     x₀ = Float64[_unconstrained(spec[k]) for k in free]

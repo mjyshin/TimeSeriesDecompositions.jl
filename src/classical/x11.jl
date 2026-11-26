@@ -55,7 +55,7 @@ cycle and at least three cycles, in two passes:
     (`trend_final`) of the seasonally adjusted series.
 
 Each seasonal filter is applied where the trend is defined, extended to the ends by the
-nearest estimate of the same phase, and centered by its `2 × p` moving average. The noise is
+nearest estimate of the same phase and centered by its `2 × p` moving average. The noise is
 `y - trend - seasonal`. With the default smoothers, a linear trend plus a fixed seasonal
 pattern is reproduced exactly.
 
@@ -214,7 +214,7 @@ const _MSR_MIN_CYCLES = 7
 
 # Final seasonal smoother of the detrended series x (NaN where the trend is undefined), with
 # what is left as nothing chosen by the MSR: the smoother, its hyperparameters derived and
-# chosen from the data, and the MSR or a note
+# chosen from the data and the MSR or a note
 function _final_seasonal(model, x, p, period)
     _uses_msr(model) || return model, _seasonal_derived(model), (), Pair{Symbol, Any}[]
     inner = _finite_range(x)

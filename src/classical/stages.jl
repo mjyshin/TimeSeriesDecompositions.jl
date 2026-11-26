@@ -46,7 +46,7 @@ _ratio(_) = (;)
 const _CHOSEN_HYPERPARAMETERS = (:bandwidth, :span, :ratio)
 
 # Hyperparameters keyed <quantity>_<component>_<stage> in fitting order, those estimated
-# and derived, and the criteria and notes
+# and derived and the criteria and notes
 struct _Report
     θ::Vector{Pair{Symbol, Any}}
     estimated::Vector{Symbol}
