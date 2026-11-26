@@ -50,7 +50,7 @@ quantile(decomp.trend, (0.05, 0.95))    # interval bounds (GP only)
 
 ![Decomposition of the example series](docs/src/assets/example.svg)
 
-The GP model allows nonuniform sampling and outputs uncertainty for each component.
+The GP model allows nonuniform sampling, outputs uncertainty for each component, and can be evaluated at any times, interpolating or extrapolating.
 
 ## License
 
