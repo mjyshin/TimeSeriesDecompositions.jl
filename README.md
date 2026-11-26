@@ -108,21 +108,18 @@ For example, the mean values for the GP corresponding to the trend, i.e., $\bar 
 x̄ = decomp.trend.mean
 ```
 
-The standard deviation as well as the lower and upper credible interval (CI) values are also outputted (the filter models give point estimates only):
+The posterior standard deviation is also outputted (the filter models give point estimates only, with `std` all `NaN`). Each posterior marginal is normal, so `quantile` gives credible intervals at any level, e.g., the 90% CI:
 
 ```julia
 σ_x̄ = decomp.trend.std
-l_x̄, u_x̄ = decomp.trend.lower, decomp.trend.upper
+l_x̄, u_x̄ = quantile(decomp.trend, 0.05), quantile(decomp.trend, 0.95)
 ```
-
-By default, we output the 50% and 90% CIs.
 
 ### 3.2&ensp;Recomputing decompositions
 
-Instead of refitting a full decomposition, perhaps we wish to simply get the decomposition values (using the same training data) at different CIs or at different times $\{t_m'\}_{m=1}^M$. In this case, we can use the `predict(decomp, ...)` function, where `decomp` is the previously-trained decomposition results:
+Instead of refitting a full decomposition, perhaps we wish to simply get the decomposition values (using the same training data) at different times $\{t_m'\}_{m=1}^M$. In this case, we can use the `predict(decomp, ...)` function, where `decomp` is the previously-trained decomposition results:
 
 ```julia
-decomp′ = predict(decomp; sig=[0.68, 0.95])
 decomp′ = predict(decomp, t′)
 ```
 

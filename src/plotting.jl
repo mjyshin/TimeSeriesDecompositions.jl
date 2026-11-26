@@ -7,16 +7,31 @@ const _TITLES = (trend = "Trend", seasonal = "Seasonal", noise = "Noise", rate =
 const _GUIDES = (trend = "\$\\bar x(t)\$", seasonal = "\$\\tilde x(t)\$",
     noise = "\$\\epsilon(t)\$", rate = "\$r(t)\$")
 
-@recipe function f(d::Decomposition; vars = _COMPONENTS, sig = [0.5, 0.9])
-    vars = vars isa Symbol ? (vars,) : vars
-    for v in vars
+# Not `levels`, which Plots reserves for contours and validates on every series
+const _INTERVALS = [0.5, 0.9]
+
+# The credible levels of the bands, widest first: `true` the default, `false`, `()` or `0` none
+_levels(intervals::Bool) = intervals ? _levels(_INTERVALS) : Float64[]
+function _levels(intervals)
+    lv = sort(unique(Float64[x for x in intervals]); rev = true)
+    all(0 .≤ lv .< 1) || throw(DomainError(intervals, "intervals must lie in [0, 1)"))
+    return filter(>(0), lv)    # a level of 0 is the mean alone, drawn anyway
+end
+
+# `plot(d)` draws every component and `plot(d, :trend)` one
+@recipe f(d::Decomposition) = (d, _COMPONENTS)
+@recipe f(d::Decomposition, component::Symbol) = (d, (component,))
+
+@recipe function f(d::Decomposition, components::Union{Tuple, AbstractVector{Symbol}};
+        intervals = _INTERVALS)
+    for v in components
         v ∈ _COMPONENTS ||
             throw(ArgumentError("unknown component :$v; valid: $(_COMPONENTS)"))
     end
-    levels = sort(unique(Float64.(vec([sig;]))); rev = true)    # widest band first
-    all(0 .< levels .< 1) || throw(DomainError(sig, "sig levels must be in (0, 1)"))
-    shown = [v for v in unique(vars) if !isnothing(d[v])]
-    isempty(shown) && throw(ArgumentError("the decomposition has none of $(Tuple(vars))"))
+    levels = _levels(intervals)
+    shown = [v for v in unique(components) if !isnothing(d[v])]
+    isempty(shown) &&
+        throw(ArgumentError("the decomposition has none of $(Tuple(components))"))
     z = [quantile(Normal(), (1 + p) / 2) for p in levels]
     n = length(shown)
 
@@ -32,7 +47,7 @@ const _GUIDES = (trend = "\$\\bar x(t)\$", seasonal = "\$\\tilde x(t)\$",
                     subplot := i
                     seriescolor := color
                     linealpha := 0
-                    fillalpha --> 1 / 3
+                    fillalpha --> 1 / (length(levels) + 1)
                     ribbon := ζ .* c.std
                     label := ""
                     d.t, c.mean

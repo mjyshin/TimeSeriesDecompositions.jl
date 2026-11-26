@@ -177,8 +177,8 @@ end
 
 Decompose `y` observed at times `t` (in any order, possibly repeated) by maximum marginal
 likelihood; `period` is the seasonal period in units of `t`, `Inf` for no seasonal
-component. The components are at the sorted `t`, with 50% and 90% credible intervals;
-`predict(d, t_new; sig)` gives other times or levels.
+component. The components are at the sorted `t`, with their posterior mean and std;
+`predict(d, t_new)` gives other times.
 """
 function fit(model::GaussianProcess, y::AbstractVector{<:Real},
         t::AbstractVector{<:Real} = eachindex(y); period::Real = Inf)
@@ -196,6 +196,5 @@ function fit(model::GaussianProcess, y::AbstractVector{<:Real},
         θ_init = merge(θ_init, θ_fixed), θ_fixed = collect(Symbol, keys(θ_fixed)),
         kernels = model.kernel, model.optimizer, model.max_iter)
     fit_info = (; result.posterior, result.ȳ, result.s_y, fit = result.fit_info)
-    return _build_decomposition(model, fit_info, t_s, result.period, result.θ;
-        sig = [0.5, 0.9])
+    return _build_decomposition(model, fit_info, t_s, result.period, result.θ)
 end

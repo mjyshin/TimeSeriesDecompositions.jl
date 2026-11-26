@@ -3,7 +3,7 @@ module TimeSeriesDecompositions
 ## Dependencies ##
 
 using AbstractGPs: GP, PosteriorGP, logpdf, posterior
-using Distributions: Chisq, Normal, quantile
+using Distributions: Chisq, Normal
 using ForwardDiff: ForwardDiff
 using HypothesisTests: LjungBoxTest, pvalue
 using Interpolations: Interpolations, BSpline, Cubic, Free, OnGrid, interpolate
@@ -15,7 +15,7 @@ using Optim: Optim, Brent, LBFGS, OnceDifferentiable, optimize
 using RecipesBase: RecipesBase, @recipe, @series
 using Reexport: @reexport
 using SparseArrays: sparse, spdiagm
-using Statistics: mean, median, var
+using Statistics: Statistics, mean, median, quantile, var
 using StatsBase: autocor, mean_and_std
 import StatsAPI: fit, predict, fitted, residuals
 
@@ -56,7 +56,7 @@ include("plotting.jl")
 
 ## Exports ##
 
-export fit, predict, fitted, residuals
+export fit, predict, fitted, residuals, quantile
 export quietly, @quietly
 export AbstractDecompositionModel, GaussianProcess, X11, STL, Decomposition, Component
 export AbstractSmoother, AbstractTrendSmoother, AbstractSeasonalSmoother, FittedSmoother
