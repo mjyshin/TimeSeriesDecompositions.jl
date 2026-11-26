@@ -31,8 +31,8 @@ _inside(v::Real, lb::Real) = max(Float64(v), lb + 1e-6 * max(abs(lb), 1e-6))
 
 function _param_wrap(v::Real, isfixed::Bool)
     (isfixed || v == 0 || !isfinite(v)) && return Float64(v)
-    ε = sqrt(eps(Float64))
-    return _Free(_inside(v, ε), ε, Inf)
+    ϵ = sqrt(eps(Float64))
+    return _Free(_inside(v, ϵ), ϵ, Inf)
 end
 
 # l_trend > period separates the trend from the zero-mean seasonal component; no bound

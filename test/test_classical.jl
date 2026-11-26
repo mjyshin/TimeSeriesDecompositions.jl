@@ -67,9 +67,9 @@ end
     @test off.seasonal.mean ≈ fill(d.seasonal.mean[60], 2) atol = 1e-6
     @test all(isnan, off.noise.mean)
     @test all(isnan, off.trend.std)
-    τ, ε = _tc[60] + 0.3 / 12, 1e-6
-    ends = predict(d, [τ - ε, τ, τ + ε]).trend.mean
-    @test predict(d, [τ]).rate.mean[1] ≈ (ends[3] - ends[1]) / 2ε rtol = 1e-4
+    τ, ϵ = _tc[60] + 0.3 / 12, 1e-6
+    ends = predict(d, [τ - ϵ, τ, τ + ϵ]).trend.mean
+    @test predict(d, [τ]).rate.mean[1] ≈ (ends[3] - ends[1]) / 2ϵ rtol = 1e-4
     @test isempty(predict(d, Float64[]).t)
     @test isequal(
         predict(d, _tc[[1, end]] .+ [-1e-12, 1e-12]).rate.mean, d.rate.mean[[1, end]]
