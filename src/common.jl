@@ -10,19 +10,32 @@ abstract type AbstractDecompositionModel end
 """
     Component
 
-Estimate of one component at the times `d.t`: `mean`, `std`, and credible-interval bounds
-`lower[i]`, `upper[i]` at level `sig[i]`. Point estimates ([`X11`](@ref), [`STL`](@ref))
-have `std` all `NaN` and no intervals. `c[:name]` is `c.name`.
+Estimate of one component at the times `d.t`: its posterior `mean` and `std`, a normal
+marginal at each time, whose quantiles [`quantile`](@ref quantile(::Component, ::Real)) gives.
+Point estimates ([`X11`](@ref), [`STL`](@ref)) have `std` all `NaN`. `c[:name]` is `c.name`.
 """
 struct Component
     mean::Vector{Float64}
     std::Vector{Float64}
-    lower::Vector{Vector{Float64}}
-    upper::Vector{Vector{Float64}}
-    sig::Vector{Float64}
 end
 
 Base.getindex(c::Component, name::Symbol) = getproperty(c, name)
+
+"""
+    quantile(c::Component, p)
+
+The quantile `p` of the component's normal marginal at each time, `mean + std * Φ⁻¹(p)`;
+several levels `p` give a times × levels matrix. The central interval at coverage `level` is
+`quantile(c, [(1 - level) / 2, (1 + level) / 2])`. Point estimates give `NaN`.
+"""
+function Statistics.quantile(c::Component, p::Real)
+    0 ≤ p ≤ 1 || throw(DomainError(p, "p must lie in [0, 1]"))
+    return c.mean .+ c.std .* quantile(Normal(), p)
+end
+function Statistics.quantile(c::Component, p)
+    reduce(hcat, [quantile(c, q) for q in p];
+        init = Matrix{Float64}(undef, length(c.mean), 0))
+end
 
 """
     Decomposition{M<:AbstractDecompositionModel}
@@ -77,21 +90,11 @@ function Base.show(io::IO, m::M) where {M <: AbstractDecompositionModel}
 end
 
 # Point estimate without uncertainty
-function Component(mean::AbstractVector{<:Real})
-    return Component(
-        Float64.(mean),
-        fill(NaN, length(mean)),
-        Vector{Float64}[],
-        Vector{Float64}[],
-        Float64[]
-    )
-end
+Component(mean::AbstractVector{<:Real}) = Component(Float64.(mean), fill(NaN, length(mean)))
 
 # Restrict a component to the time indices idx
 function _subset(c::Component, idx)
-    return Component(
-        c.mean[idx], c.std[idx], [l[idx] for l in c.lower], [u[idx] for u in c.upper], c.sig
-    )
+    return Component(c.mean[idx], c.std[idx])
 end
 _subset(::Nothing, idx) = nothing
 

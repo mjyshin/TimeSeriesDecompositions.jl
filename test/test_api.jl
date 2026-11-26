@@ -33,8 +33,6 @@ end
         @test comp isa Component
         @test length(comp.mean) == 50
         @test length(comp.std) == 50
-        @test length(comp.lower) == length(comp.sig)
-        @test length(comp.upper) == length(comp.sig)
         @test all(comp.std .≥ 0)
     end
     @test d.rate isa Component
@@ -68,8 +66,7 @@ end
     @test d.rate isa Component
     @test length(d.rate.mean) == 50
     @test all(isnan, d.rate.std)
-    @test all(isnan, d.rate.lower[1])
-    @test all(isnan, d.rate.upper[1])
+    @test all(isnan, quantile(d.rate, 0.05))
 end
 
 @testset "rate component (full, finite std)" begin
@@ -80,14 +77,19 @@ end
     @test all(d.rate.std .≥ 0)
 end
 
-@testset "sig levels" begin
+@testset "quantile" begin
     d = fit(GaussianProcess, _y, _t; period = 12.0)
-    @test d.trend.sig == [0.5, 0.9]
-    d = predict(d; sig = [0.68, 0.95])
-    @test d.trend.sig == d.seasonal.sig == d.rate.sig == [0.68, 0.95]
-    @test length(d.trend.lower) == 2
-    @test predict(d; sig = [0.95, 0.5, 0.5]).trend.sig == [0.5, 0.95]
-    @test_throws DomainError predict(d; sig = [1.0])
+    c = d.trend
+    @test quantile(c, 0.5) ≈ c.mean
+    @test quantile(c, 0.95) ≈ c.mean .+ 1.6448536269514722 .* c.std
+    @test quantile(c, 0.05) .+ quantile(c, 0.95) ≈ 2 .* c.mean
+    q = quantile(c, [0.05, 0.5, 0.95])    # times × levels
+    @test size(q) == (50, 3)
+    @test q[:, 3] == quantile(c, 0.95)
+    @test size(quantile(c, Float64[])) == (50, 0)
+    @test quantile(c, 0.0) == fill(-Inf, 50)
+    @test_throws DomainError quantile(c, 1.5)
+    @test all(isnan, quantile(fit(X11(), _y, _t; period = 12.0).trend, 0.9))
 end
 
 @testset "predict with no t_new uses decomp.t" begin
@@ -104,12 +106,6 @@ end
     @test d2 isa Decomposition{<:GaussianProcess}
     @test length(d2.t) == 10
     @test length(d2.trend.mean) == 10
-end
-
-@testset "predict preserves sig" begin
-    d = predict(fit(GaussianProcess, _y, _t; period = 12.0); sig = [0.9])
-    d2 = predict(d, collect(51.0:55.0))
-    @test d2.trend.sig == [0.9]
 end
 
 @testset "components at the sorted times" begin
@@ -254,7 +250,7 @@ end
     for name in (:model, :t, :period, :trend, :seasonal, :noise, :rate, :θ)
         @test d[name] === getproperty(d, name)
     end
-    for name in (:mean, :std, :lower, :upper, :sig)
+    for name in (:mean, :std)
         @test d[:trend][name] === getproperty(d.trend, name)
     end
     @test d[:θ][:σ_trend] == d.θ.σ_trend

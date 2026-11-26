@@ -18,7 +18,7 @@ const _yc = sin.(2π .* _tc) .+ 0.2 .* (_tc .- 2000) .+ 0.1 .* randn(120)
         @test c isa Component
         @test length(c.mean) == 120
         @test all(isnan, c.std)
-        @test isempty(c.lower) && isempty(c.upper) && isempty(c.sig)
+        @test all(isnan, quantile(c, 0.9))
     end
     @test d.trend.mean .+ d.seasonal.mean .+ d.noise.mean ≈ _yc
     @test sum(d[c].mean for c in (:trend, :seasonal, :noise)) ≈ _yc

@@ -96,13 +96,11 @@ function Base.show(io::IO, ::MIME"text/plain", d::Decomposition{<:GaussianProces
     _show_header(io, d)
 
     comps = join(
-        ["trend"; has_seasonal ? ["seasonal"] : []; has_noise ? ["noise"] : []; "rate"],
+        ["trend"; has_seasonal ? ["seasonal"] : []; has_noise ? ["noise"] : [];
+         d.model.approx_rate ? "rate (no std: approx_rate)" : "rate"],
         ", "
     )
     _show_line(io, "components", comps)
-    ci = join(round.(Int, 100 .* d.trend.sig), "%, ") * "%"
-    d.model.approx_rate && (ci *= " (none for rate: approx_rate)")
-    _show_line(io, "CI levels", ci)
     _show_line(io, "period", has_seasonal ? _fmt(d.period) : "none")
 
     kernels = Pair{Symbol, String}[:trend => _kernel_name(kernel.trend)]
