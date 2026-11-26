@@ -2,16 +2,16 @@ using TimeSeriesDecompositions
 using Test
 
 @testset "model and shorthand" begin
-    m = GaussianProcess(; approx_rate = true)
+    m = GaussianProcess(; max_iter = 500)
     d = fit(m, _y, _t; period = 12.0)
     @test d isa Decomposition{<:GaussianProcess}
     @test d.model === m
     @test d.period == 12.0
-    @test fit(GaussianProcess, _y, _t; period = 12.0, approx_rate = true).θ == d.θ
+    @test fit(GaussianProcess, _y, _t; period = 12.0, max_iter = 500).θ == d.θ
     @test m.kernel == (trend = Matern52Kernel(),
         seasonal = (effect = Matern52Kernel(), envelope = Matern52Kernel()))
     @test sprint(show, GaussianProcess()) == "GaussianProcess()"
-    @test sprint(show, m) == "GaussianProcess(approx_rate=true)"
+    @test sprint(show, m) == "GaussianProcess(max_iter=500)"
     # settings are checked when the model is built
     @test_throws ArgumentError GaussianProcess(; θ_init = (lengthscale = 1.0,))
     @test_throws ArgumentError GaussianProcess(; θ_fixed = (period = 12.0,))
@@ -20,7 +20,7 @@ using Test
     @test_throws DomainError GaussianProcess(; max_iter = -1)
     # the positional constructor checks too
     @test_throws ArgumentError GaussianProcess(
-        m.kernel, (; noise = 1.0), (;), false, m.optimizer, 10)
+        m.kernel, (; noise = 1.0), (;), m.optimizer, 10)
 end
 
 @testset "Component fields" begin
@@ -58,15 +58,7 @@ end
     @test d.θ.bandwidth == Inf
 end
 
-@testset "rate component (approx, NaN std)" begin
-    d = fit(GaussianProcess, _y, _t; period = 12.0, approx_rate = true)
-    @test d.rate isa Component
-    @test length(d.rate.mean) == 50
-    @test all(isnan, d.rate.std)
-    @test all(isnan, quantile(d.rate, 0.05))
-end
-
-@testset "rate component (full, finite std)" begin
+@testset "rate component" begin
     d = fit(GaussianProcess, _y, _t; period = 12.0)
     @test d.rate isa Component
     @test length(d.rate.mean) == 50
@@ -234,16 +226,15 @@ end
     end
     @test occursin(r"σ_noise\s+\S", s[findfirst("fixed", s)[end]:end])
 
-    d = fit(GaussianProcess, _y, _t; approx_rate = true)
+    d = fit(GaussianProcess, _y, _t)
     s = sprint(show, MIME"text/plain"(), d)
     @test occursin("period     : none", s)
-    @test occursin("approx_rate", s)
     @test !occursin("σ_seasonal", s)
     @test sprint(show, MIME"text/plain"(), predict(d, 1.0:3.0)) isa String
 end
 
 @testset "fields by name" begin
-    d = fit(GaussianProcess, _y, _t; period = 12.0, approx_rate = true)
+    d = fit(GaussianProcess, _y, _t; period = 12.0)
     for name in (:model, :t, :period, :trend, :seasonal, :noise, :rate, :θ)
         @test d[name] === getproperty(d, name)
     end

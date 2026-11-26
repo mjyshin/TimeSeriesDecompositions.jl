@@ -20,11 +20,10 @@ end
 
 # Posterior of the trend's derivative, by central differences of step h in the trend kernel
 # (forward-mode AD of Matérn kernels is NaN at coincident points)
-function _rate_estimate(k::Kernel, data, t, s_y, h; approx::Bool)
+function _rate_estimate(k::Kernel, data, t, s_y, h)
     (; α, C, x) = data
     Dk = (kernelmatrix(k, x, t .+ h) .- kernelmatrix(k, x, t .- h)) ./ 2h
     μ = s_y .* (Dk' * α)
-    approx && return Component(μ, fill(NaN, length(t)))
     D²k = (kernelmatrix_diag(k, t .+ h) .+ kernelmatrix_diag(k, t .- h) .-
            2 .* kernelmatrix_diag(k, t .+ h, t .- h)) ./ 4h^2
     v = D²k .- vec(sum(abs2, C.L \ Dk; dims = 1))
@@ -39,7 +38,7 @@ function _build_decomposition(model::GaussianProcess, fit_info::NamedTuple,
     estimate(k, shift = 0.0) = isnothing(k) ? nothing :
                                _component_estimate(k, data, t, shift, s_y)
     h = 1e-4 * (isfinite(θ.l_trend) ? θ.l_trend : 1.0)
-    rate = _rate_estimate(ks.trend, data, t, s_y, h; approx = model.approx_rate)
+    rate = _rate_estimate(ks.trend, data, t, s_y, h)
     return Decomposition(model, t, period, estimate(ks.trend, ȳ), estimate(ks.seasonal),
         ks.noise > 0 ? _noise_estimate(ks.noise, data, t, s_y) : nothing, rate, θ,
         nothing, fit_info)
