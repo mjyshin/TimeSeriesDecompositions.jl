@@ -32,11 +32,13 @@ A decomposition fitted by `fit(model::M, y, t; period)`, with fields `model`, `t
 hyperparameters `θ` and, for filter models, the fitted stage smoothers `smoother`.
 Evaluate at other times with `predict(d, t_new)`; `d[:name]` is `d.name`.
 
-With Plots.jl loaded, `plot(d; vars=(:trend, :seasonal, :noise, :rate), sig=[0.5, 0.9])`
-draws one panel per component in `vars` (in that order), skipping those `d` does not have:
-the mean as a line and, where the `std` is finite, a band `mean ± zσ` per credible level in
-`sig` (`z` the normal quantile at `(1 + level) / 2`). The colors are fixed whatever is
-shown (trend 1, seasonal 2, noise 3, rate 4); other Plots attributes pass through.
+With Plots.jl loaded, `plot(d)` draws one panel per component, `plot(d, :trend)` one, and
+`plot(d, [:trend, :rate])` (or a tuple) those given, in that order, skipping those `d` does
+not have: the mean as a line and, where the `std` is finite, a band `mean ± zσ` per credible
+level in the keyword `intervals` (default `[0.5, 0.9]`; `true` the default, `false`, `()` or
+`0` the mean alone; `z` the normal quantile at `(1 + level) / 2`), each with opacity
+1/(number of levels + 1) so that they stack. The colors are fixed whatever is shown (trend 1,
+seasonal 2, noise 3, rate 4); other Plots attributes pass through.
 """
 struct Decomposition{M <: AbstractDecompositionModel}
     model::M

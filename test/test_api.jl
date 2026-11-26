@@ -271,7 +271,12 @@ end
 @testset "plot recipe" begin
     RecipesBase = TimeSeriesDecompositions.RecipesBase
     RecipesBase.is_key_supported(::Symbol) = true    # defined by Plots
-    recipe(d; kw...) = RecipesBase.apply_recipe(Dict{Symbol, Any}(kw), d)
+    function recipe(args...; kw...)    # follow the forwarding recipes, as Plots does
+        series = RecipesBase.apply_recipe(Dict{Symbol, Any}(kw), args...)
+        return length(series) == 1 && only(series).args != args &&
+               first(only(series).args) isa Decomposition ?
+               recipe(only(series).args...; kw...) : series
+    end
     attr(s, k) = s.plotattributes[k]
     d = fit(GaussianProcess(), _y, _t; period = 12.0)
     # all four panels: two bands and a line each, colored by component
@@ -283,16 +288,23 @@ end
     @test attr(band, :ribbon) ≈ 1.6448536269514722 .* d.trend.std
     @test band.args == (d.t, d.trend.mean)
     # a subset in the order given keeps its colors; one level gives one band
-    series = recipe(d; vars = [:rate, :noise], sig = 0.95)
+    series = recipe(d, [:rate, :noise]; intervals = 0.95)
     @test [attr(s, :seriescolor) for s in series] == [4, 4, 3, 3]
     @test attr(series[1], :ribbon) ≈ 1.959963984540054 .* d.rate.std
-    @test length(recipe(d; vars = :rate)) == 3
+    @test attr(series[1], :fillalpha) ≈ 1 / 2
+    @test length(recipe(d, :rate)) == 3
+    @test length(recipe(d, (:rate, :noise))) == 6
+    # the default levels, or the mean alone
+    @test length(recipe(d, :rate; intervals = true)) == 3
+    for none in (false, (), 0, [0.0])
+        @test length(recipe(d, :rate; intervals = none)) == 1
+    end
     # point estimates have no bands; missing components are skipped
     @test length(recipe(fit(X11(), _y, _t; period = 12.0))) == 4
     d0 = fit(GaussianProcess(), _y, _t; period = Inf)
     @test isnothing(d0.seasonal)
     @test [attr(s, :seriescolor) for s in recipe(d0)] == repeat([1, 3, 4]; inner = 3)
-    @test_throws ArgumentError recipe(d0; vars = [:seasonal])
-    @test_throws ArgumentError recipe(d; vars = [:level])
-    @test_throws DomainError recipe(d; sig = 1.0)
+    @test_throws ArgumentError recipe(d0, :seasonal)
+    @test_throws ArgumentError recipe(d, :level)
+    @test_throws DomainError recipe(d; intervals = 1.0)
 end
