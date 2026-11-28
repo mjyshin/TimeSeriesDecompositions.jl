@@ -1,6 +1,6 @@
 # TimeSeriesDecompositions.jl
 
-Seasonal-trend decomposition of univariate time series, using [Gaussian processes](https://doi.org/10.1016/j.epidem.2026.100908) (GPs) or two classical methods, [X-11](https://link.springer.com/book/10.1007/978-3-319-31822-6) and [STL](https://www.proquest.com/docview/1266805989):
+Seasonal-trend decomposition of univariate time series, using [Gaussian processes](https://doi.org/10.1016/j.epidem.2026.100908) (GPs) or two classical methods, [X-11](https://doi.org/10.1007/978-3-319-31822-6) and [STL](https://www.proquest.com/docview/1266805989):
 
 $$
 y(t) = \bar x(t) + \tilde x(t) + \epsilon(t),
@@ -16,7 +16,7 @@ is also computed.
 
 For multiplicative decomposition $y(t) = \bar x(t) \tilde x(t) \epsilon(t)$, with exponential growth rate $\frac{\text d\bar x(t)}{\text dt} = r(t) \bar x(t)$, fit to $\log y(t)$ instead.
 
-Future extensions will include multiple seasonality $\tilde x(t) = \tilde x_1(t) + \tilde x_2(t) + \dots$, as in [MSTL](https://www.inderscienceonline.com/doi/10.1504/IJOR.2025.143957).
+Future extensions will include multiple seasonality $\tilde x(t) = \tilde x_1(t) + \tilde x_2(t) + \dots$, as in [MSTL](https://doi.org/10.1504/IJOR.2025.143957).
 
 ## Installation
 
