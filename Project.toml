@@ -1,7 +1,7 @@
 name = "TimeSeriesDecompositions"
 uuid = "29adc1aa-f14c-4657-8706-c5e2d354a969"
 version = "0.1.0"
-authors = ["Matthew J. Y. Shin <matthew.shin@pasteur.fr>"]
+authors = ["Matthew J. Y. Shin <38840363+mjyshin@users.noreply.github.com>"]
 
 [deps]
 AbstractGPs = "99985d1d-32ba-4be9-9821-2ec096f28918"
